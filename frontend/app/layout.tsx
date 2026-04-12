@@ -4,6 +4,7 @@ import { Inter } from "next/font/google";
 import { AppShell } from "@/components/app-shell";
 import { AuthProvider } from "@/components/auth-context";
 
+import "bootstrap/dist/css/bootstrap.min.css";
 import "./globals.css";
 
 const inter = Inter({

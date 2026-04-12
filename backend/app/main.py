@@ -8,14 +8,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import (
+    admin_lms,
     auth,
     health,
     lab,
     modules,
     progress,
     registrations,
+    student_lms,
     teacher_enrollment,
-    teacher_modules,
+    teacher_lms,
     teacher_reports,
 )
 from app.db.init_db import init_db
@@ -79,17 +81,16 @@ app.add_middleware(
 
 app.include_router(health.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
+app.include_router(admin_lms.router, prefix="/api")
+app.include_router(teacher_lms.router, prefix="/api")
+app.include_router(teacher_enrollment.router, prefix="/api")
+app.include_router(teacher_reports.router, prefix="/api")
+app.include_router(student_lms.router, prefix="/api")
+app.include_router(registrations.router, prefix="/api")
 app.include_router(modules.router, prefix="/api")
 app.include_router(progress.router, prefix="/api")
 app.include_router(lab.router, prefix="/api")
-app.include_router(registrations.router, prefix="/api")
-app.include_router(teacher_enrollment.router, prefix="/api")
-app.include_router(teacher_modules.router, prefix="/api")
-app.include_router(teacher_reports.router, prefix="/api")
 
-profiles_path = (Path(__file__).resolve().parents[1] / "uploads" / "profiles").resolve()
-profiles_path.mkdir(parents=True, exist_ok=True)
-app.mount("/uploads/profiles", StaticFiles(directory=profiles_path), name="profile-uploads")
-module_covers_path = (Path(__file__).resolve().parents[1] / "uploads" / "module-covers").resolve()
-module_covers_path.mkdir(parents=True, exist_ok=True)
-app.mount("/uploads/module-covers", StaticFiles(directory=module_covers_path), name="module-cover-uploads")
+uploads_root = (Path(__file__).resolve().parents[1] / "uploads").resolve()
+uploads_root.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=uploads_root), name="uploads")

@@ -3,28 +3,19 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { UserRole, useAuth } from "@/components/auth-context";
+import { useAuth } from "@/components/auth-context";
 
-type DemoRole = Extract<UserRole, "teacher" | "student">;
-
-const DEMO_STUDENT_USERNAME =
-  process.env.NEXT_PUBLIC_DEMO_STUDENT_USERNAME?.trim() || "student_demo";
-const DEMO_STUDENT_PASSWORD =
-  process.env.NEXT_PUBLIC_DEMO_STUDENT_PASSWORD?.trim() || "student123";
-const DEMO_TEACHER_USERNAME =
-  process.env.NEXT_PUBLIC_DEMO_TEACHER_USERNAME?.trim() || "teacher_demo";
-const DEMO_TEACHER_PASSWORD =
-  process.env.NEXT_PUBLIC_DEMO_TEACHER_PASSWORD?.trim() || "teacher123";
+type DemoRole = "teacher" | "student";
 
 const DEMO_ACCOUNTS: Record<DemoRole, { username: string; password: string; label: string }> = {
   teacher: {
-    username: DEMO_TEACHER_USERNAME,
-    password: DEMO_TEACHER_PASSWORD,
+    username: "teacher_demo",
+    password: "teacher123",
     label: "Use Teacher Demo",
   },
   student: {
-    username: DEMO_STUDENT_USERNAME,
-    password: DEMO_STUDENT_PASSWORD,
+    username: "student_demo",
+    password: "student123",
     label: "Use Student Demo",
   },
 };
@@ -103,8 +94,6 @@ export function AuthSwitcher({ collapsed = false }: { collapsed?: boolean }) {
           ? "Checking saved session"
           : role === "teacher"
             ? "Teacher workspace unlocked"
-            : role === "admin"
-              ? "Admin workspace unlocked"
             : username === "Guest"
               ? "Guest student mode"
               : "Student workspace unlocked"}
@@ -138,15 +127,8 @@ export function AuthSwitcher({ collapsed = false }: { collapsed?: boolean }) {
       </div>
 
       <p className="mt-3 text-[11px] leading-relaxed text-muted">
-        Demo accounts:{" "}
-        <span className="text-brandWhite">
-          {DEMO_TEACHER_USERNAME} / {DEMO_TEACHER_PASSWORD}
-        </span>{" "}
-        and{" "}
-        <span className="text-brandWhite">
-          {DEMO_STUDENT_USERNAME} / {DEMO_STUDENT_PASSWORD}
-        </span>
-        .
+        Demo accounts: <span className="text-brandWhite">teacher_demo / teacher123</span> and{" "}
+        <span className="text-brandWhite">student_demo / student123</span>.
       </p>
 
       {error ? <p className="mt-2 text-xs text-red-300">{error}</p> : null}

@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useSearchParams } from "next/navigation";
 
 import {
-  detectOpenPalmFromImage,
   getAlphabetModelStatus,
   getNumbersModelStatus,
   getWordsModelStatus,
@@ -29,7 +29,85 @@ type CaptureOptions = {
   maxWidth?: number;
   maxHeight?: number;
   jpegQuality?: number;
+  cropToGuideBox?: boolean;
 };
+
+const GUIDE_BOX_RATIO = 0.56;
+const GUIDE_BOX_WARNING = "Please sign inside the box. Anything outside the box will not be analyzed.";
+const RECOGNIZED_INPUT_NAV_KEYS = new Set([
+  "ArrowLeft",
+  "ArrowRight",
+  "ArrowUp",
+  "ArrowDown",
+  "Home",
+  "End",
+  "Tab",
+  "Shift",
+  "Control",
+  "Alt",
+  "Meta",
+  "Escape",
+]);
+
+const NUMBER_CATEGORY_VALUES: NumbersCategory[] = [
+  "0-10",
+  "11-20",
+  "21-30",
+  "31-40",
+  "41-50",
+  "51-60",
+  "61-70",
+  "71-80",
+  "81-90",
+  "91-100",
+];
+
+const WORD_CATEGORY_VALUES: WordsCategory[] = [
+  "greeting",
+  "responses",
+  "date",
+  "family",
+  "relationship",
+  "color",
+];
+
+function parseRecognitionMode(value: string | null): RecognitionMode | null {
+  return value === "alphabet" || value === "numbers" || value === "words" ? value : null;
+}
+
+function parseNumbersCategoryParam(value: string | null): NumbersCategory | null {
+  if (!value) {
+    return null;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "1-10") {
+    return "0-10";
+  }
+  return NUMBER_CATEGORY_VALUES.includes(normalized as NumbersCategory)
+    ? (normalized as NumbersCategory)
+    : null;
+}
+
+function parseWordsCategoryParam(value: string | null): WordsCategory | null {
+  if (!value) {
+    return null;
+  }
+  const normalized = value.trim().toLowerCase();
+  const aliases: Record<string, WordsCategory> = {
+    greetings: "greeting",
+    response: "responses",
+    responses: "responses",
+    days: "date",
+    dates: "date",
+    relationships: "relationship",
+    people: "relationship",
+    colors: "color",
+  };
+  const candidate = aliases[normalized] ?? normalized;
+  return WORD_CATEGORY_VALUES.includes(candidate as WordsCategory)
+    ? (candidate as WordsCategory)
+    : null;
+}
 
 function formatResultTime(value: number | null) {
   if (!value) {
@@ -46,33 +124,21 @@ function formatResultTime(value: number | null) {
   }
 }
 
-const MODE_OPTIONS: { value: RecognitionMode; label: string }[] = [
-  { value: "alphabet", label: "Alphabet" },
-  { value: "numbers", label: "Numbers" },
-  { value: "words", label: "Words" },
-];
+function appendAlphabetText(previous: string, token: string) {
+  const normalized = token.trim();
+  if (!normalized || normalized === "UNSURE" || normalized === "No prediction yet.") {
+    return previous;
+  }
 
-const NUMBER_OPTIONS: { value: NumbersCategory; label: string }[] = [
-  { value: "0-10", label: "0-10" },
-  { value: "11-20", label: "11-20" },
-  { value: "21-30", label: "21-30" },
-  { value: "31-40", label: "31-40" },
-  { value: "41-50", label: "41-50" },
-  { value: "51-60", label: "51-60" },
-  { value: "61-70", label: "61-70" },
-  { value: "71-80", label: "71-80" },
-  { value: "81-90", label: "81-90" },
-  { value: "91-100", label: "91-100" },
-];
+  if (normalized.toUpperCase() === "SPACE") {
+    if (!previous || previous.endsWith(" ")) {
+      return previous;
+    }
+    return `${previous} `;
+  }
 
-const WORD_OPTIONS: { value: WordsCategory; label: string }[] = [
-  { value: "greeting", label: "Greeting" },
-  { value: "responses", label: "Responses" },
-  { value: "date", label: "Days" },
-  { value: "family", label: "Family" },
-  { value: "relationship", label: "People" },
-  { value: "color", label: "Color" },
-];
+  return `${previous}${normalized}`;
+}
 
 export function SigningLab({
   variant = "student",
@@ -81,17 +147,15 @@ export function SigningLab({
   preferredWordsCategory,
 }: SigningLabProps) {
   const REPEAT_TOKEN_COOLDOWN_MS = 1400;
-  const ALPHABET_PALM_COOLDOWN_MS = 900;
   const isTeacherTester = variant === "teacher";
+  const searchParams = useSearchParams();
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const predictionInFlightRef = useRef(false);
-  const openPalmInFlightRef = useRef(false);
   const wordsHistoryRef = useRef<LabPrediction[]>([]);
-  const palmRaisedRef = useRef(false);
-  const lastPalmCommitAtRef = useRef(0);
   const predictionRef = useRef("No prediction yet.");
+  const recognizedInputRef = useRef<HTMLInputElement | null>(null);
   const blockedTokenRef = useRef<string | null>(null);
   const modeCheckRef = useRef<{ key: string; ready: boolean; message: string } | null>(null);
   const lastAcceptedRef = useRef<{ token: string | null; at: number }>({
@@ -116,29 +180,12 @@ export function SigningLab({
   const [lastRecognizedToken, setLastRecognizedToken] = useState<string | null>(null);
   const [blockedTokenAfterClear, setBlockedTokenAfterClear] = useState<string | null>(null);
   const [lastTestedAt, setLastTestedAt] = useState<number | null>(null);
+  const [guideBoxWarning, setGuideBoxWarning] = useState<string | null>(null);
 
   const isSequenceMode = mode === "numbers" || mode === "words";
-
-  useEffect(() => {
-    if (!preferredMode) {
-      return;
-    }
-    setMode(preferredMode);
-  }, [preferredMode]);
-
-  useEffect(() => {
-    if (!preferredNumbersCategory) {
-      return;
-    }
-    setNumbersCategory(preferredNumbersCategory);
-  }, [preferredNumbersCategory]);
-
-  useEffect(() => {
-    if (!preferredWordsCategory) {
-      return;
-    }
-    setWordsCategory(preferredWordsCategory);
-  }, [preferredWordsCategory]);
+  const modeParam = searchParams.get("mode");
+  const numbersParam = searchParams.get("numbers");
+  const wordsParam = searchParams.get("words");
 
   useEffect(() => {
     predictionRef.current = prediction;
@@ -168,11 +215,30 @@ export function SigningLab({
     setLastRecognizedToken(null);
     setBlockedTokenAfterClear(null);
     setLastTestedAt(null);
-    palmRaisedRef.current = false;
-    lastPalmCommitAtRef.current = 0;
+    setGuideBoxWarning(null);
     lastAcceptedRef.current = { token: null, at: 0 };
     wordsHistoryRef.current = [];
   }, [mode, isSequenceMode]);
+
+  useEffect(() => {
+    const presetMode = parseRecognitionMode(modeParam);
+    if (!presetMode) {
+      return;
+    }
+    setMode(presetMode);
+    if (presetMode === "numbers") {
+      const presetNumbersCategory = parseNumbersCategoryParam(numbersParam);
+      if (presetNumbersCategory) {
+        setNumbersCategory(presetNumbersCategory);
+      }
+    }
+    if (presetMode === "words") {
+      const presetWordsCategory = parseWordsCategoryParam(wordsParam);
+      if (presetWordsCategory) {
+        setWordsCategory(presetWordsCategory);
+      }
+    }
+  }, [modeParam, numbersParam, wordsParam]);
 
   useEffect(() => {
     if (mode !== "words") {
@@ -188,8 +254,7 @@ export function SigningLab({
     setLastRecognizedToken(null);
     setBlockedTokenAfterClear(null);
     setLastTestedAt(null);
-    palmRaisedRef.current = false;
-    lastPalmCommitAtRef.current = 0;
+    setGuideBoxWarning(null);
     lastAcceptedRef.current = { token: null, at: 0 };
   }, [wordsCategory, mode]);
 
@@ -206,8 +271,7 @@ export function SigningLab({
     setLastRecognizedToken(null);
     setBlockedTokenAfterClear(null);
     setLastTestedAt(null);
-    palmRaisedRef.current = false;
-    lastPalmCommitAtRef.current = 0;
+    setGuideBoxWarning(null);
     lastAcceptedRef.current = { token: null, at: 0 };
   }, [numbersCategory, mode]);
 
@@ -237,71 +301,69 @@ export function SigningLab({
     lastAcceptedRef.current = { token, at: now };
   }, [prediction, lastRecognizedToken, blockedTokenAfterClear, mode, isTeacherTester]);
 
-  useEffect(() => {
-    if (isTeacherTester || !running || mode !== "alphabet") {
-      palmRaisedRef.current = false;
+  function setRecognizedInputWithCaret(nextValue: string, caretPosition: number) {
+    setRecognizedInput(nextValue);
+    window.requestAnimationFrame(() => {
+      const input = recognizedInputRef.current;
+      if (!input) {
+        return;
+      }
+      input.focus();
+      input.setSelectionRange(caretPosition, caretPosition);
+    });
+  }
+
+  function handleRecognizedInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (mode !== "alphabet") {
       return;
     }
 
-    let cancelled = false;
+    const input = event.currentTarget;
+    const selectionStart = input.selectionStart ?? recognizedInput.length;
+    const selectionEnd = input.selectionEnd ?? recognizedInput.length;
 
-    async function checkOpenPalmSignal() {
-      if (cancelled || !running || mode !== "alphabet" || openPalmInFlightRef.current) {
+    if (event.key === "Backspace") {
+      event.preventDefault();
+      if (!recognizedInput) {
         return;
       }
-      openPalmInFlightRef.current = true;
-      try {
-        const frame = await captureCurrentFrameAsFile({
-          maxWidth: 640,
-          maxHeight: 480,
-          jpegQuality: 0.9,
-        });
-        if (!frame) {
-          return;
-        }
-        const result = await detectOpenPalmFromImage(frame);
-        const openPalm = result.open_palm;
-        const now = Date.now();
 
-        if (
-          openPalm &&
-          !palmRaisedRef.current &&
-          now - lastPalmCommitAtRef.current >= ALPHABET_PALM_COOLDOWN_MS
-        ) {
-          const token = predictionRef.current.trim();
-          const blocked = blockedTokenRef.current;
-          if (
-            token &&
-            token !== "No prediction yet." &&
-            token !== "UNSURE" &&
-            (!blocked || blocked !== token)
-          ) {
-            setRecognizedInput((previous) => (previous ? `${previous} ${token}` : token));
-            setLastRecognizedToken(token);
-            lastAcceptedRef.current = { token, at: now };
-            lastPalmCommitAtRef.current = now;
-          }
-        }
-
-        palmRaisedRef.current = openPalm;
-      } catch {
-        // Keep silent to avoid noisy UI while polling.
-      } finally {
-        openPalmInFlightRef.current = false;
+      if (selectionEnd > selectionStart) {
+        const nextValue =
+          recognizedInput.slice(0, selectionStart) + recognizedInput.slice(selectionEnd);
+        setRecognizedInputWithCaret(nextValue, selectionStart);
+        return;
       }
+
+      if (selectionStart === 0) {
+        return;
+      }
+
+      const nextCaret = selectionStart - 1;
+      const nextValue =
+        recognizedInput.slice(0, nextCaret) + recognizedInput.slice(selectionStart);
+      setRecognizedInputWithCaret(nextValue, nextCaret);
+      return;
     }
 
-    const interval = window.setInterval(() => {
-      void checkOpenPalmSignal();
-    }, 420);
-    void checkOpenPalmSignal();
+    if (event.key === " ") {
+      event.preventDefault();
+      const nextValue =
+        recognizedInput.slice(0, selectionStart) + " " + recognizedInput.slice(selectionEnd);
+      setRecognizedInputWithCaret(nextValue, selectionStart + 1);
+      return;
+    }
 
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-      palmRaisedRef.current = false;
-    };
-  }, [running, mode, blockedTokenAfterClear, isTeacherTester]);
+    if (RECOGNIZED_INPUT_NAV_KEYS.has(event.key)) {
+      return;
+    }
+
+    if ((event.ctrlKey || event.metaKey) && ["a", "c", "x"].includes(event.key.toLowerCase())) {
+      return;
+    }
+
+    event.preventDefault();
+  }
 
   async function startCamera() {
     setError(null);
@@ -329,6 +391,7 @@ export function SigningLab({
     }
     wordsHistoryRef.current = [];
     setCaptureStatus(null);
+    setGuideBoxWarning(null);
     setRunning(false);
   }
 
@@ -352,21 +415,37 @@ export function SigningLab({
       return null;
     }
 
-    const maxWidth = options?.maxWidth ?? sourceWidth;
-    const maxHeight = options?.maxHeight ?? sourceHeight;
-    const scale = Math.min(1, maxWidth / sourceWidth, maxHeight / sourceHeight);
-    const width = Math.max(1, Math.round(sourceWidth * scale));
-    const height = Math.max(1, Math.round(sourceHeight * scale));
+    const cropToGuideBox = options?.cropToGuideBox ?? true;
+    const cropWidth = cropToGuideBox ? Math.round(sourceWidth * GUIDE_BOX_RATIO) : sourceWidth;
+    const cropHeight = cropToGuideBox ? Math.round(sourceHeight * GUIDE_BOX_RATIO) : sourceHeight;
+    const cropX = cropToGuideBox ? Math.round((sourceWidth - cropWidth) / 2) : 0;
+    const cropY = cropToGuideBox ? Math.round((sourceHeight - cropHeight) / 2) : 0;
+
+    const maxWidth = options?.maxWidth ?? cropWidth;
+    const maxHeight = options?.maxHeight ?? cropHeight;
+    const scale = Math.min(1, maxWidth / cropWidth, maxHeight / cropHeight);
+    const height = Math.max(1, Math.round(cropHeight * scale));
+    const normalizedWidth = Math.max(1, Math.round(cropWidth * scale));
 
     const canvas = document.createElement("canvas");
-    canvas.width = width;
+    canvas.width = normalizedWidth;
     canvas.height = height;
     const context = canvas.getContext("2d");
     if (!context) {
       return null;
     }
 
-    context.drawImage(video, 0, 0, width, height);
+    context.drawImage(
+      video,
+      cropX,
+      cropY,
+      cropWidth,
+      cropHeight,
+      0,
+      0,
+      normalizedWidth,
+      height
+    );
     const blob = await new Promise<Blob | null>((resolve) => {
       canvas.toBlob((value) => resolve(value), "image/jpeg", options?.jpegQuality ?? 0.95);
     });
@@ -465,13 +544,13 @@ export function SigningLab({
 
         if (isStaticRange && !status.ready) {
           const message =
-            "Numbers 0-10 recognition is unavailable because the trained model artifact is missing. Run scripts/train_numbers_model.py to create backend/artifacts/numbers_model.joblib.";
+            "Numbers 1-10 recognition is unavailable because the trained model artifact is missing. Run scripts/train_numbers_model.py to create backend/artifacts/numbers_model.joblib.";
           modeCheckRef.current = { key: currentKey, ready: false, message };
           setModeReady(false);
           setModeStatusMessage(message);
           setError(message);
           if (options?.fromCamera) {
-            setCaptureStatus("Camera ready, but numbers 0-10 recognition is unavailable.");
+            setCaptureStatus("Camera ready, but numbers 1-10 recognition is unavailable.");
           }
           return false;
         }
@@ -492,8 +571,8 @@ export function SigningLab({
 
         const message = isStaticRange
           ? status.ten_motion_ready
-            ? "Numbers 0-10 models loaded and ready."
-            : "Numbers 0-10 static model loaded. Ten-motion assist is unavailable, but static recognition is ready."
+            ? "Numbers 1-10 models loaded and ready."
+            : "Numbers 1-10 static model loaded. Ten-motion assist is unavailable, but static recognition is ready."
           : `Numbers ${numbersCategory} motion model loaded and ready.`;
         modeCheckRef.current = { key: currentKey, ready: true, message };
         setModeReady(true);
@@ -501,7 +580,7 @@ export function SigningLab({
         if (options?.fromCamera) {
           setCaptureStatus(
             isStaticRange
-              ? "Camera ready. Numbers 0-10 model warmed."
+              ? "Camera ready. Numbers 1-10 model warmed."
               : `Camera ready. Numbers ${numbersCategory} model warmed.`
           );
         }
@@ -645,20 +724,26 @@ export function SigningLab({
     }
     predictionInFlightRef.current = true;
     setError(null);
+    setGuideBoxWarning(null);
     setPredicting(true);
 
     try {
       const attempts = 3;
       const samples: LabPrediction[] = [];
+      let noHandInGuideBoxCount = 0;
       for (let index = 0; index < attempts; index += 1) {
-        const frame = await captureCurrentFrameAsFile();
+        const frame = await captureCurrentFrameAsFile({ cropToGuideBox: true });
         if (!frame) {
           continue;
         }
         try {
           const sample = await predictSignFromImage(frame, mode);
           samples.push(sample);
-        } catch {
+        } catch (requestError) {
+          const message = requestError instanceof Error ? requestError.message : "";
+          if (message.toLowerCase().includes("no hand detected")) {
+            noHandInGuideBoxCount += 1;
+          }
           // Keep trying next frame to improve chance of finding a clear hand.
         }
         if (index < attempts - 1) {
@@ -667,11 +752,20 @@ export function SigningLab({
       }
 
       if (samples.length === 0) {
-        setError("No clear hand was detected. Keep one hand centered and try again.");
+        if (noHandInGuideBoxCount > 0) {
+          setGuideBoxWarning(GUIDE_BOX_WARNING);
+          setError("No hand was detected inside the guide box.");
+        } else {
+          setError("No clear hand was detected. Keep one hand centered and try again.");
+        }
         return;
       }
 
-      markPredictionResult(chooseStablePrediction(samples));
+      const result = chooseStablePrediction(samples);
+      markPredictionResult(result);
+      if (!isTeacherTester && mode === "alphabet") {
+        setRecognizedInput((previous) => appendAlphabetText(previous, result.prediction));
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Prediction failed";
       setError(message);
@@ -690,6 +784,7 @@ export function SigningLab({
     }
     predictionInFlightRef.current = true;
     setError(null);
+    setGuideBoxWarning(null);
     setPredicting(true);
 
     try {
@@ -715,6 +810,7 @@ export function SigningLab({
       setCaptureStatus("Capturing gesture...");
       const firstPass = await captureFrameSequence(firstPassFrames, firstPassDelay, {
         ...captureProfile,
+        cropToGuideBox: true,
       });
 
       if (firstPass.length < 8) {
@@ -739,6 +835,7 @@ export function SigningLab({
         await sleep(90);
         const fallbackPass = await captureFrameSequence(fallbackPassFrames, fallbackPassDelay, {
           ...captureProfile,
+          cropToGuideBox: true,
         });
         if (fallbackPass.length >= 8) {
           try {
@@ -768,7 +865,13 @@ export function SigningLab({
       markPredictionResult(immediateResult);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Words prediction failed";
-      setError(message);
+      const normalized = message.toLowerCase();
+      if (normalized.includes("no hand detected") || normalized.includes("no clear hand")) {
+        setGuideBoxWarning(GUIDE_BOX_WARNING);
+        setError("No hand was detected inside the guide box.");
+      } else {
+        setError(message);
+      }
     } finally {
       setPredicting(false);
       window.setTimeout(() => setCaptureStatus(null), 1200);
@@ -785,6 +888,7 @@ export function SigningLab({
     }
     predictionInFlightRef.current = true;
     setError(null);
+    setGuideBoxWarning(null);
     setPredicting(true);
 
     try {
@@ -818,7 +922,13 @@ export function SigningLab({
       markPredictionResult(result);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Numbers prediction failed";
-      setError(message);
+      const normalized = message.toLowerCase();
+      if (normalized.includes("no hand detected") || normalized.includes("no clear hand")) {
+        setGuideBoxWarning(GUIDE_BOX_WARNING);
+        setError("No hand was detected inside the guide box.");
+      } else {
+        setError(message);
+      }
     } finally {
       setPredicting(false);
       window.setTimeout(() => setCaptureStatus(null), 1200);
@@ -839,7 +949,7 @@ export function SigningLab({
   }
 
   useEffect(() => {
-    if (isTeacherTester || !running || isSequenceMode) {
+    if (!isTeacherTester || !running || isSequenceMode) {
       return;
     }
 
@@ -860,495 +970,274 @@ export function SigningLab({
     void ensureSelectedModeReady({ fromCamera: true });
   }, [running, mode, numbersCategory, wordsCategory, predicting]);
 
-  const sectionTitle = "Gesture Tester";
+  const sectionTitle = "Free Signing Lab";
   const sectionDescription =
-    "For Alphabet mode, show an open palm to enter the current predicted letter. Numbers and Words support manual capture.";
+    "Keep your hand inside the guide box, choose the correct range first, and use the manual analyze button when you are ready.";
   const modeLabel = isTeacherTester ? "Recognition Mode" : "What do you want to sign?";
   const actionLabel = "Analyze Sign Now";
   const outputLabel = "Prediction Output";
+  const recognizedLabel = mode === "alphabet" ? "Recognized Text" : "Recognized Gesture";
+  const recognizedPlaceholder =
+    mode === "alphabet"
+      ? "Detected letters will build here..."
+      : "Recognized gesture/phrase appears here...";
   const idleStatus = isTeacherTester
     ? isSequenceMode
       ? `${mode === "words" ? "Words" : "Numbers"} mode ready`
       : "Alphabet mode ready"
     : isSequenceMode
       ? `${mode === "words" ? "Words" : "Numbers"} manual mode ready`
-      : "Alphabet mode active (show open palm to enter)";
+      : "Alphabet mode ready for manual analysis";
   const activeStatus = isTeacherTester
     ? "Analyzing gesture..."
     : isSequenceMode
       ? "Analyzing gesture sequence..."
       : "Live mode active";
-  const confidencePercent = confidence !== null ? Math.round(confidence * 100) : null;
-  const confidenceLabel =
-    confidencePercent === null
-      ? "Awaiting capture"
-      : confidencePercent >= 85
-        ? "High confidence"
-        : confidencePercent >= 65
-          ? "Moderate confidence"
-          : "Low confidence";
-  const confidenceBarTone =
-    confidencePercent === null
-      ? "bg-slate-300"
-      : confidencePercent >= 85
-        ? "bg-brandGreen"
-        : confidencePercent >= 65
-          ? "bg-amber-400"
-          : "bg-brandRed";
-  if (isTeacherTester) {
-    return (
-      <section className="space-y-4">
-        <div className="grid gap-4 xl:grid-cols-[1.35fr_1fr]">
-          <div className="panel panel-lively overflow-hidden">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-brandGreen">
-                Live Camera Preview
-              </p>
-              <span className="rounded-full border border-brandBorder bg-brandYellowLight px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-brandNavy">
-                {captureStatus ?? (predicting ? activeStatus : running ? idleStatus : "Camera is off")}
-              </span>
-            </div>
 
-            <div className="relative mt-4 overflow-hidden rounded-[1.6rem] border border-slate-300 bg-slate-950">
-              <video
-                autoPlay
-                className="aspect-video w-full object-cover"
-                muted
-                playsInline
-                ref={videoRef}
-              />
-              {!running ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/78 px-6 text-center text-white">
-                  <p className="text-xs font-semibold uppercase tracking-[0.32em] text-white/70">
-                    Camera Off
-                  </p>
-                  <p className="mt-3 text-2xl font-black">
-                    Start the camera to preview the signing space.
-                  </p>
-                  <p className="mt-3 max-w-md text-sm leading-relaxed text-white/75">
-                    Use even lighting, keep hands inside frame, and make sure the final gesture can
-                    be seen clearly before you run a teacher check.
-                  </p>
+  return (
+    <section className="container-fluid px-0">
+      {!isTeacherTester ? (
+        <div className="card lms-bootstrap-card mb-3">
+          <div className="card-body">
+            <h2 className="h4 mb-2 fw-semibold text-gradient-brand">{sectionTitle}</h2>
+            <p className="mb-0 text-muted">{sectionDescription}</p>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="row g-3">
+        <div className="col-lg-8">
+          <div className="card lms-bootstrap-card h-100">
+            <div className="card-body">
+              <div className="position-relative overflow-hidden rounded-4 border border-secondary-subtle bg-dark">
+            <video
+              autoPlay
+                  className="d-block w-100 lms-sign-video"
+              muted
+              playsInline
+              ref={videoRef}
+            />
+                <div className="pointer-events-none position-absolute top-0 start-0 h-100 w-100 d-flex align-items-center justify-content-center">
+                  <div className="lms-guide-box" />
+                </div>
+              </div>
+              <div className="mt-2 d-flex flex-wrap align-items-center gap-2">
+                <span className="badge rounded-pill border border-secondary-subtle bg-white text-uppercase fw-semibold text-dark">
+                  Sign Here
+                </span>
+                <span className="badge rounded-pill lms-badge-brand text-uppercase fw-semibold">
+                  Keep your hand inside the box
+                </span>
+              </div>
+              {guideBoxWarning ? (
+                <div className="alert alert-danger mt-2 mb-0 py-2 px-3 small fw-semibold" role="alert">
+                  {guideBoxWarning}
                 </div>
               ) : null}
-            </div>
-
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button
-                className={`rounded-lg px-4 py-2 text-xs font-semibold text-white transition hover:-translate-y-0.5 ${
-                  running ? "bg-brandRed hover:bg-brandRed/90" : "bg-brandBlue hover:bg-brandBlue/90"
-                }`}
-                onClick={() => {
-                  void toggleCamera();
-                }}
-                type="button"
-              >
-                <span className="inline-grid min-w-[112px] place-items-center">
-                  <span
-                    className={`col-start-1 row-start-1 transition-all duration-300 ${
-                      running ? "translate-y-1 opacity-0" : "translate-y-0 opacity-100"
-                    }`}
-                  >
-                    Start Camera
-                  </span>
-                  <span
-                    className={`col-start-1 row-start-1 transition-all duration-300 ${
-                      running ? "translate-y-0 opacity-100" : "-translate-y-1 opacity-0"
-                    }`}
-                  >
-                    Stop Camera
-                  </span>
+              <div className="mt-3 d-flex flex-wrap align-items-center gap-2">
+                <button
+                  className={`btn ${running ? "btn-danger" : "btn-brand"} fw-semibold`}
+                  onClick={() => {
+                    void toggleCamera();
+                  }}
+                  type="button"
+                >
+                  {running ? "Stop Camera" : "Start Camera"}
+                </button>
+                <span className="badge rounded-pill lms-status-pill">
+                  {captureStatus ??
+                    (predicting ? activeStatus : running ? idleStatus : "Camera is off")}
                 </span>
-              </button>
-              <button
-                className="rounded-lg bg-brandRed px-4 py-2 text-xs font-semibold text-white transition hover:-translate-y-0.5 hover:bg-brandRed/90 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={!running || predicting || warmingModel || modeReady === false}
-                onClick={() => {
-                  void runPrediction();
-                }}
-                type="button"
-              >
-                {warmingModel ? "Preparing Model..." : actionLabel}
-              </button>
+              </div>
             </div>
           </div>
+        </div>
 
-          <aside className="space-y-4">
-            <div className="panel panel-lively">
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-accentWarm">
-                Lane Setup
-              </p>
-
-              <label
-                className="mt-4 block text-xs uppercase tracking-wider label-accent"
-                htmlFor="recognition-mode"
-              >
+        <aside className="col-lg-4">
+          <div className="card lms-bootstrap-card h-100">
+            <div className="card-body">
+              <label className="form-label lms-label" htmlFor="recognition-mode">
                 {modeLabel}
               </label>
               <select
-                className="teacher-card-control mt-2 w-full"
+                className="form-select"
                 id="recognition-mode"
                 onChange={(event) => setMode(event.target.value as RecognitionMode)}
                 value={mode}
               >
-                {MODE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
+                <option value="alphabet">Alphabet</option>
+                <option value="numbers">Numbers</option>
+                <option value="words">Words</option>
               </select>
 
               {mode === "numbers" ? (
-                <div className="mt-4">
-                  <label
-                    className="text-xs uppercase tracking-wider label-accent"
-                    htmlFor="numbers-category"
-                  >
+                <div className="mt-3">
+                  <label className="form-label lms-label" htmlFor="numbers-category">
                     Numbers Range
                   </label>
                   <select
-                    className="teacher-card-control mt-2 w-full"
+                    className="form-select"
                     id="numbers-category"
                     onChange={(event) => setNumbersCategory(event.target.value as NumbersCategory)}
                     value={numbersCategory}
                   >
-                    {NUMBER_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
+                    <option value="0-10">1-10</option>
+                    <option value="11-20">11-20</option>
+                    <option value="21-30">21-30</option>
+                    <option value="31-40">31-40</option>
+                    <option value="41-50">41-50</option>
+                    <option value="51-60">51-60</option>
+                    <option value="61-70">61-70</option>
+                    <option value="71-80">71-80</option>
+                    <option value="81-90">81-90</option>
+                    <option value="91-100">91-100</option>
                   </select>
+                  <p className="mt-2 mb-0 small text-secondary">
+                    Choose the range first. Example: if you want to sign 11-20, select 11-20 before analyzing.
+                  </p>
                 </div>
               ) : null}
 
               {mode === "words" ? (
-                <div className="mt-4">
-                  <label
-                    className="text-xs uppercase tracking-wider label-accent"
-                    htmlFor="words-category"
-                  >
+                <div className="mt-3">
+                  <label className="form-label lms-label" htmlFor="words-category">
                     Words Category
                   </label>
                   <select
-                    className="teacher-card-control mt-2 w-full"
+                    className="form-select"
                     id="words-category"
                     onChange={(event) => setWordsCategory(event.target.value as WordsCategory)}
                     value={wordsCategory}
                   >
-                    {WORD_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
+                    <option value="greeting">Greeting</option>
+                    <option value="responses">Responses</option>
+                    <option value="date">Days</option>
+                    <option value="family">Family</option>
+                    <option value="relationship">People</option>
+                    <option value="color">Color</option>
                   </select>
+                </div>
+              ) : null}
+
+              {!isTeacherTester && mode === "alphabet" ? (
+                <div className="alert alert-warning mt-3 mb-0 py-2 px-3 small">
+                  Alphabet mode is manual now. Keep one hand inside the focus box, then press Analyze Sign Now.
+                </div>
+              ) : null}
+
+              {running ? (
+                <div className="mt-3 d-flex flex-wrap gap-2">
+                  <button
+                    className="btn btn-brand fw-semibold"
+                    disabled={!running || predicting || warmingModel || modeReady === false}
+                    onClick={() => {
+                      void runPrediction();
+                    }}
+                    type="button"
+                  >
+                    {warmingModel ? "Preparing Model..." : actionLabel}
+                  </button>
                 </div>
               ) : null}
 
               {modeStatusMessage ? (
                 <div
-                  className={`mt-3 rounded-xl border px-3 py-3 text-xs leading-relaxed ${
-                    modeReady === false
-                      ? "border-brandRed/30 bg-brandRedLight text-brandRed"
-                      : "border-brandGreen/30 bg-brandGreenLight text-brandGreen"
+                  className={`alert mt-3 mb-0 py-2 px-3 small ${
+                    modeReady === false ? "alert-danger" : "alert-success"
                   }`}
+                  role="status"
                 >
                   {modeStatusMessage}
                 </div>
               ) : null}
-            </div>
 
-            <div className="panel panel-lively">
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-brandGreen">
-                {outputLabel}
+              <p className="lms-label mt-4 mb-1">{outputLabel}</p>
+              <p className="display-6 mb-2 fw-bold lms-text-brand">{prediction}</p>
+              <p className="mb-1 small text-secondary">
+                Confidence: {confidence !== null ? `${Math.round(confidence * 100)}%` : "N/A"}
               </p>
-              <div className="mt-4 rounded-2xl border border-brandBlue/20 bg-gradient-to-br from-brandBlue/10 via-white to-white p-4">
-                <p className="text-sm font-semibold text-slate-600">
-                  {prediction === "No prediction yet."
-                    ? "Waiting for a teacher capture"
-                    : "Latest prediction"}
-                </p>
-                <p className="mt-2 text-3xl font-black text-brandBlue">{prediction}</p>
-
-                <div className="mt-4">
-                  <div className="flex items-center justify-between gap-3 text-xs font-semibold text-slate-600">
-                    <span>{confidenceLabel}</span>
-                    <span>{confidencePercent !== null ? `${confidencePercent}%` : "N/A"}</span>
-                  </div>
-                  <div className="mt-2 h-2 rounded-full bg-slate-200">
-                    <div
-                      className={`h-2 rounded-full transition-all ${confidenceBarTone}`}
-                      style={{ width: confidencePercent !== null ? `${confidencePercent}%` : "0%" }}
-                    />
-                  </div>
-                </div>
-
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {topCandidates.length > 0 ? (
-                    topCandidates.map((candidate) => (
-                      <span
-                        key={candidate}
-                        className="rounded-full border border-brandBorder bg-white/80 px-3 py-1 text-xs font-semibold text-slate-700"
-                      >
-                        {candidate}
-                      </span>
-                    ))
-                  ) : (
-                    <span className="rounded-full border border-brandBorder bg-white/80 px-3 py-1 text-xs font-semibold text-slate-500">
-                      No alternate candidates yet
-                    </span>
-                  )}
-                </div>
-
-                <p className="mt-4 text-xs text-slate-600">
+              <p className="mb-0 small text-secondary">
+                Top candidates: {topCandidates.length > 0 ? topCandidates.join(" | ") : "N/A"}
+              </p>
+              {isTeacherTester ? (
+                <p className="mt-2 mb-0 small text-secondary">
                   Last result: {formatResultTime(lastTestedAt)}
                 </p>
-              </div>
+              ) : null}
 
-              <button
-                className="mt-4 rounded-lg border border-brandBorder bg-brandMutedSurface px-3 py-2 text-xs font-semibold text-brandBlue transition hover:bg-brandBlueLight"
-                onClick={() => {
-                  setPrediction("No prediction yet.");
-                  setConfidence(null);
-                  setTopCandidates([]);
-                  setLastTestedAt(null);
-                  setError(null);
-                }}
-                type="button"
-              >
-                Clear Result
-              </button>
-
-              {error ? <p className="mt-3 text-sm text-brandRed">Error: {error}</p> : null}
+              {isTeacherTester ? (
+                <button
+                  className="btn btn-outline-brand btn-sm mt-3"
+                  onClick={() => {
+                    setPrediction("No prediction yet.");
+                    setConfidence(null);
+                    setTopCandidates([]);
+                    setLastTestedAt(null);
+                    setError(null);
+                  }}
+                  type="button"
+                >
+                  Clear Result
+                </button>
+              ) : (
+                <>
+                  <label className="form-label lms-label mt-4 mb-1">{recognizedLabel}</label>
+                  <input
+                    autoComplete="off"
+                    className="form-control"
+                    onChange={() => {}}
+                    onKeyDown={handleRecognizedInputKeyDown}
+                    onDrop={(event) => event.preventDefault()}
+                    onPaste={(event) => event.preventDefault()}
+                    placeholder={recognizedPlaceholder}
+                    readOnly={mode !== "alphabet"}
+                    ref={recognizedInputRef}
+                    spellCheck={false}
+                    type="text"
+                    value={recognizedInput}
+                  />
+                  {mode === "alphabet" ? (
+                    <p className="mt-2 mb-0 small text-secondary">
+                      You can use your keyboard Space and Backspace keys to edit this text.
+                    </p>
+                  ) : null}
+                  <button
+                    className="btn btn-outline-brand btn-sm mt-2"
+                    onClick={() => {
+                      const currentToken = prediction.trim();
+                      if (
+                        currentToken &&
+                        currentToken !== "No prediction yet." &&
+                        currentToken !== "UNSURE"
+                      ) {
+                        setBlockedTokenAfterClear(currentToken);
+                      } else {
+                        setBlockedTokenAfterClear(null);
+                      }
+                      setRecognizedInput("");
+                      setPrediction("No prediction yet.");
+                      setConfidence(null);
+                      setTopCandidates([]);
+                      lastAcceptedRef.current = { token: null, at: 0 };
+                      setLastRecognizedToken(null);
+                      setLastTestedAt(null);
+                    }}
+                    type="button"
+                  >
+                    Clear Input
+                  </button>
+                </>
+              )}
             </div>
-          </aside>
-        </div>
-      </section>
-    );
-  }
-
-  return (
-    <section className="space-y-4">
-      {!isTeacherTester ? (
-        <div className="panel panel-lively">
-          <h2 className="text-2xl font-semibold title-gradient">{sectionTitle}</h2>
-          <p className="mt-2 text-sm text-muted">{sectionDescription}</p>
-        </div>
-      ) : null}
-
-      <div className="grid gap-4 md:grid-cols-[1.4fr_1fr]">
-        <div className="panel panel-lively">
-          <video
-            autoPlay
-            className="aspect-video w-full rounded-xl border border-slate-300 bg-slate-900"
-            muted
-            playsInline
-            ref={videoRef}
-          />
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              className={`rounded-lg px-3 py-2 text-xs font-semibold text-white transition hover:-translate-y-0.5 ${
-                running ? "bg-brandRed hover:bg-brandRed/90" : "bg-brandBlue hover:bg-brandBlue/90"
-              }`}
-              onClick={() => {
-                void toggleCamera();
-              }}
-              type="button"
-            >
-              <span className="inline-grid min-w-[92px] place-items-center">
-                <span
-                  className={`col-start-1 row-start-1 transition-all duration-300 ${
-                    running ? "translate-y-1 opacity-0" : "translate-y-0 opacity-100"
-                  }`}
-                >
-                  Start Camera
-                </span>
-                <span
-                  className={`col-start-1 row-start-1 transition-all duration-300 ${
-                    running ? "translate-y-0 opacity-100" : "-translate-y-1 opacity-0"
-                  }`}
-                >
-                  Stop Camera
-                </span>
-              </span>
-            </button>
-            <span className="rounded-lg border border-brandBorder bg-brandYellowLight px-3 py-2 text-xs font-semibold text-brandNavy">
-              {captureStatus ??
-                (predicting ? activeStatus : running ? idleStatus : "Camera is off")}
-            </span>
           </div>
-        </div>
-
-        <aside className="panel panel-lively">
-          <label className="text-xs uppercase tracking-wider label-accent" htmlFor="recognition-mode">
-            {modeLabel}
-          </label>
-          <select
-            className="mt-2 w-full rounded border border-brandBorder bg-white px-3 py-2 text-sm text-slate-900 focus:border-brandBlue focus:outline-none"
-            id="recognition-mode"
-            onChange={(event) => setMode(event.target.value as RecognitionMode)}
-            value={mode}
-          >
-            <option value="alphabet">Alphabet</option>
-            <option value="numbers">Numbers</option>
-            <option value="words">Words</option>
-          </select>
-
-          {mode === "numbers" ? (
-            <div className="mt-3">
-              <label className="text-xs uppercase tracking-wider label-accent" htmlFor="numbers-category">
-                Numbers Range
-              </label>
-              <select
-                className="mt-2 w-full rounded border border-brandBorder bg-white px-3 py-2 text-sm text-slate-900 focus:border-brandBlue focus:outline-none"
-                id="numbers-category"
-                onChange={(event) => setNumbersCategory(event.target.value as NumbersCategory)}
-                value={numbersCategory}
-              >
-                <option value="0-10">0-10</option>
-                <option value="11-20">11-20</option>
-                <option value="21-30">21-30</option>
-                <option value="31-40">31-40</option>
-                <option value="41-50">41-50</option>
-                <option value="51-60">51-60</option>
-                <option value="61-70">61-70</option>
-                <option value="71-80">71-80</option>
-                <option value="81-90">81-90</option>
-                <option value="91-100">91-100</option>
-              </select>
-            </div>
-          ) : null}
-
-          {mode === "words" ? (
-            <div className="mt-3">
-              <label className="text-xs uppercase tracking-wider label-accent" htmlFor="words-category">
-                Words Category
-              </label>
-              <select
-                className="mt-2 w-full rounded border border-brandBorder bg-white px-3 py-2 text-sm text-slate-900 focus:border-brandBlue focus:outline-none"
-                id="words-category"
-                onChange={(event) => setWordsCategory(event.target.value as WordsCategory)}
-                value={wordsCategory}
-              >
-                <option value="greeting">Greeting</option>
-                <option value="responses">Responses</option>
-                <option value="date">Days</option>
-                <option value="family">Family</option>
-                <option value="relationship">People</option>
-                <option value="color">Color</option>
-              </select>
-            </div>
-          ) : null}
-
-          {!isTeacherTester && mode === "alphabet" ? (
-            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm font-medium text-amber-900">
-              Note: Show an open palm after the prediction appears to enter the letter.
-            </div>
-          ) : null}
-
-          {isSequenceMode || isTeacherTester ? (
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                className="rounded-lg bg-brandRed px-3 py-2 text-xs font-semibold text-white transition hover:-translate-y-0.5 hover:bg-brandRed/90 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={!running || predicting || warmingModel || modeReady === false}
-                onClick={() => {
-                  void runPrediction();
-                }}
-                type="button"
-              >
-                {warmingModel ? "Preparing Model..." : actionLabel}
-              </button>
-            </div>
-          ) : null}
-
-          {modeStatusMessage ? (
-            <div
-              className={`mt-3 rounded-xl border px-3 py-3 text-xs leading-relaxed ${
-                modeReady === false
-                  ? "border-brandRed/30 bg-brandRedLight text-brandRed"
-                  : "border-brandGreen/30 bg-brandGreenLight text-brandGreen"
-              }`}
-            >
-              {modeStatusMessage}
-            </div>
-          ) : null}
-
-          <p className="mt-4 text-xs uppercase tracking-wider label-accent">{outputLabel}</p>
-          <p className="mt-3 text-2xl font-bold text-brandBlue">{prediction}</p>
-          <p className="mt-2 text-sm text-slate-700">
-            Confidence: {confidence !== null ? `${Math.round(confidence * 100)}%` : "N/A"}
-          </p>
-          <p className="mt-1 text-xs text-slate-600">
-            Top candidates: {topCandidates.length > 0 ? topCandidates.join(" | ") : "N/A"}
-          </p>
-          {isTeacherTester ? (
-            <p className="mt-2 text-xs text-slate-600">
-              Last result: {formatResultTime(lastTestedAt)}
-            </p>
-          ) : null}
-
-          {isTeacherTester ? (
-            <>
-              <button
-                className="mt-4 rounded-lg border border-brandBorder bg-brandMutedSurface px-3 py-2 text-xs font-semibold text-brandBlue transition hover:bg-brandBlueLight"
-                onClick={() => {
-                  setPrediction("No prediction yet.");
-                  setConfidence(null);
-                  setTopCandidates([]);
-                  setLastTestedAt(null);
-                  setError(null);
-                }}
-                type="button"
-              >
-                Clear Result
-              </button>
-            </>
-          ) : (
-            <>
-              <label className="mt-4 block text-xs font-semibold uppercase tracking-wider label-accent">
-                Recognized Gesture
-                <input
-                  autoComplete="off"
-                  className="mt-2 w-full rounded border border-brandBorder bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-brandBlue"
-                  readOnly
-                  onDrop={(event) => event.preventDefault()}
-                  onPaste={(event) => event.preventDefault()}
-                  placeholder="Recognized gesture/phrase appears here..."
-                  spellCheck={false}
-                  type="text"
-                  value={recognizedInput}
-                />
-              </label>
-              <button
-                className="mt-2 rounded-lg border border-brandBorder bg-brandMutedSurface px-3 py-2 text-xs font-semibold text-brandBlue transition hover:bg-brandBlueLight"
-                onClick={() => {
-                  const currentToken = prediction.trim();
-                  if (
-                    currentToken &&
-                    currentToken !== "No prediction yet." &&
-                    currentToken !== "UNSURE"
-                  ) {
-                    setBlockedTokenAfterClear(currentToken);
-                  } else {
-                    setBlockedTokenAfterClear(null);
-                  }
-                  setRecognizedInput("");
-                  setPrediction("No prediction yet.");
-                  setConfidence(null);
-                  setTopCandidates([]);
-                  lastAcceptedRef.current = { token: null, at: 0 };
-                  setLastRecognizedToken(null);
-                  setLastTestedAt(null);
-                }}
-                type="button"
-              >
-                Clear Input
-              </button>
-            </>
-          )}
         </aside>
       </div>
 
-      {error ? <p className="text-sm text-red-600">Error: {error}</p> : null}
+      {error ? (
+        <div className="alert alert-danger mt-3 mb-0 py-2 px-3 small" role="alert">
+          Error: {error}
+        </div>
+      ) : null}
     </section>
   );
 }

@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "setup": "npm ci",
     "dev": "node scripts/dev-clean.mjs",
     "dev:clean": "node scripts/dev-clean.mjs --clean",
     "dev:raw": "node scripts/next-with-env.mjs dev",
@@ -13,6 +14,7 @@
   },
   "dependencies": {
     "@zxing/browser": "0.1.5",
+    "bootstrap": "^5.3.3",
     "next": "15.3.0",
     "react": "19.0.0",
     "react-dom": "19.0.0"

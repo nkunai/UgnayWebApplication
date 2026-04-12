@@ -13,6 +13,7 @@ type RawSessionUser = {
   first_name?: string | null;
   last_name?: string | null;
   profile_image_path?: string | null;
+  must_change_password?: boolean;
 };
 
 type AuthUser = {
@@ -21,6 +22,7 @@ type AuthUser = {
   role: UserRole;
   displayName: string;
   profileImagePath: string | null;
+  mustChangePassword: boolean;
 };
 
 type SessionState = AuthUser & {
@@ -30,6 +32,7 @@ type SessionState = AuthUser & {
 type AuthState = SessionState & {
   login: (username: string, password: string) => Promise<AuthUser>;
   logout: () => Promise<void>;
+  clearMustChangePassword: () => void;
 };
 
 type LoginResponse = {
@@ -46,9 +49,11 @@ function toAuthUser(user?: RawSessionUser): AuthUser {
   return {
     id: typeof user?.id === "number" ? user.id : 0,
     username,
-    role: user?.role === "admin" ? "admin" : user?.role === "teacher" ? "teacher" : "student",
+    role:
+      user?.role === "admin" ? "admin" : user?.role === "teacher" ? "teacher" : "student",
     displayName,
     profileImagePath: user?.profile_image_path ?? null,
+    mustChangePassword: Boolean(user?.must_change_password),
   };
 }
 
@@ -62,9 +67,11 @@ const AuthContext = createContext<AuthState>({
   role: "student",
   displayName: "Guest",
   profileImagePath: null,
+  mustChangePassword: false,
   loading: true,
   login: async () => GUEST_USER,
   logout: async () => {},
+  clearMustChangePassword: () => {},
 });
 
 const GUEST_USER: AuthUser = {
@@ -73,6 +80,7 @@ const GUEST_USER: AuthUser = {
   role: "student",
   displayName: "Guest",
   profileImagePath: null,
+  mustChangePassword: false,
 };
 
 const GUEST_STATE: SessionState = {
@@ -184,8 +192,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  function clearMustChangePassword() {
+    setState((previous) => ({
+      ...previous,
+      mustChangePassword: false,
+    }));
+  }
+
   return (
-    <AuthContext.Provider value={{ ...state, login, logout }}>
+    <AuthContext.Provider value={{ ...state, login, logout, clearMustChangePassword }}>
       {children}
     </AuthContext.Provider>
   );

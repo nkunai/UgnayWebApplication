@@ -1,21 +1,10 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import { useParams } from "next/navigation";
-
-import { ModuleDetailViewer } from "@/components/modules/module-detail-viewer";
-
-export default function StudentModuleDetailPage() {
-  const params = useParams<{ moduleId: string }>();
-
-  return (
-    <ModuleDetailViewer
-      backHref="/student/modules"
-      backLabel="Back To Weekly Sessions"
-      headerEyebrow="Student Session"
-      headerTitle="Weekly Learning Session"
-      moduleId={Number(params.moduleId)}
-      storageScope="student-module-detail"
-      viewerRole="student"
-    />
-  );
+export default async function LegacyStudentModuleDetailPage({
+  params,
+}: {
+  params: Promise<{ moduleId: string }>;
+}) {
+  const { moduleId } = await params;
+  redirect(`/modules/${moduleId}`);
 }

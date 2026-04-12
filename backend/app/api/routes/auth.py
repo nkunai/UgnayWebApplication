@@ -105,11 +105,8 @@ def _get_active_password_reset_otp(db: Session, user_id: int) -> PasswordResetOt
 @router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
 def register(payload: UserCreate, db: Session = Depends(get_db)) -> AuthResponse:
     raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail=(
-            "Direct self-registration is disabled. Submit registration first, then wait for "
-            "teacher validation and initial credentials via email."
-        ),
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Registration is no longer available. Contact the LMS admin for your account.",
     )
 
 
@@ -135,37 +132,9 @@ def login(payload: UserLogin, db: Session = Depends(get_db)) -> AuthResponse:
 def verify_teacher_qr(
     payload: TeacherInviteVerifyQrRequest, db: Session = Depends(get_db)
 ) -> TeacherInviteVerifyQrResponse:
-    qr_input = payload.qr_payload.strip()
-    invite_code: str | None = None
-
-    try:
-        invite_code = parse_qr_payload(qr_input)
-    except ValueError as exc:
-        # Fallback: allow direct invite code entry when browser QR scanner is unavailable.
-        # Passkey verification is still required in the next step.
-        if qr_input and ":" not in qr_input:
-            invite_code = qr_input
-        else:
-            message = str(exc)
-            status_code = (
-                status.HTTP_503_SERVICE_UNAVAILABLE
-                if "TEACHER_INVITE_SIGNING_SECRET" in message
-                else status.HTTP_401_UNAUTHORIZED
-            )
-            raise HTTPException(status_code=status_code, detail=message) from exc
-
-    invite = db.query(TeacherInvite).filter(TeacherInvite.invite_code == invite_code).first()
-    try:
-        invite = ensure_invite_is_usable(invite)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
-
-    return TeacherInviteVerifyQrResponse(
-        invite_code=invite_code,
-        label=invite.label,
-        expires_at=invite.expires_at,
-        remaining_uses=_remaining_invite_uses(invite),
-        message="QR verified. Enter the matching passkey.",
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Teacher invite onboarding has been removed. Contact the LMS admin for your account.",
     )
 
 
@@ -173,27 +142,9 @@ def verify_teacher_qr(
 def verify_teacher_passkey(
     payload: TeacherInviteVerifyPasskeyRequest, db: Session = Depends(get_db)
 ) -> TeacherInviteVerifyPasskeyResponse:
-    invite = db.query(TeacherInvite).filter(TeacherInvite.invite_code == payload.invite_code).first()
-    try:
-        invite = ensure_invite_is_usable(invite)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
-
-    if not verify_password(payload.passkey, invite.passkey_hash):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid passkey.")
-
-    try:
-        onboarding_token = create_onboarding_token(invite.invite_code, minutes=10)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(exc),
-        ) from exc
-    return TeacherInviteVerifyPasskeyResponse(
-        onboarding_token=onboarding_token,
-        expires_at=invite.expires_at,
-        remaining_uses=_remaining_invite_uses(invite),
-        message="Passkey verified. Enter teacher email to receive credentials.",
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Teacher invite onboarding has been removed. Contact the LMS admin for your account.",
     )
 
 
@@ -203,84 +154,9 @@ def verify_teacher_passkey(
 def issue_teacher_credentials(
     payload: TeacherInviteIssueCredentialsRequest, db: Session = Depends(get_db)
 ) -> TeacherInviteIssueCredentialsResponse:
-    try:
-        invite_code = verify_onboarding_token(payload.onboarding_token)
-    except ValueError as exc:
-        message = str(exc)
-        status_code = (
-            status.HTTP_503_SERVICE_UNAVAILABLE
-            if "TEACHER_INVITE_SIGNING_SECRET" in message
-            else status.HTTP_401_UNAUTHORIZED
-        )
-        raise HTTPException(status_code=status_code, detail=message) from exc
-
-    invite = db.query(TeacherInvite).filter(TeacherInvite.invite_code == invite_code).first()
-    try:
-        invite = ensure_invite_is_usable(invite)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
-
-    normalized_email = payload.email.strip().lower()
-
-    existing_teacher = (
-        db.query(User)
-        .filter(User.email == normalized_email, User.role == "teacher")
-        .first()
-    )
-    if existing_teacher:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Teacher account for this email already exists.",
-        )
-
-    existing_email = db.query(User).filter(User.email == normalized_email).first()
-    if existing_email:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Email is already linked to another account.",
-        )
-
-    existing_username = db.query(User).filter(User.username == normalized_email).first()
-    if existing_username:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Username conflict detected. Please use another teacher email.",
-        )
-
-    temporary_password = generate_temporary_password()
-    teacher_user = User(
-        username=normalized_email,
-        email=normalized_email,
-        password_hash=hash_password(temporary_password),
-        role="teacher",
-        must_change_password=True,
-    )
-    db.add(teacher_user)
-    db.flush()
-
-    try:
-        send_teacher_initial_credentials_email(
-            to_email=normalized_email,
-            username=normalized_email,
-            temporary_password=temporary_password,
-        )
-    except RuntimeError as exc:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(exc),
-        ) from exc
-
-    invite.use_count += 1
-    invite.last_used_at = utc_now()
-    if invite.max_use_count is not None and invite.use_count >= invite.max_use_count:
-        invite.status = "inactive"
-    db.add(invite)
-    db.commit()
-
-    return TeacherInviteIssueCredentialsResponse(
-        message="Teacher credentials sent successfully.",
-        username=normalized_email,
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Teacher invite onboarding has been removed. Contact the LMS admin for your account.",
     )
 
 
@@ -291,17 +167,10 @@ def revoke_teacher_invite(
     db: Session = Depends(get_db),
     current_teacher: User = Depends(get_current_teacher),
 ) -> dict[str, str]:
-    invite = db.query(TeacherInvite).filter(TeacherInvite.invite_code == invite_code).first()
-    if not invite:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Teacher invite not found.")
-
-    invite.status = "inactive"
-    invite.revoked_at = utc_now()
-    invite.revoked_by_user_id = current_teacher.id
-    invite.revoked_reason = payload.reason.strip() if payload.reason else None
-    db.add(invite)
-    db.commit()
-    return {"message": "Teacher invite revoked successfully."}
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Teacher invite onboarding has been removed.",
+    )
 
 
 @router.post("/forgot-password/request")
@@ -518,6 +387,8 @@ def update_my_profile(
         current_user.middle_name = payload.middle_name.strip() or None
     if payload.last_name is not None:
         current_user.last_name = payload.last_name.strip() or None
+    if payload.company_name is not None:
+        current_user.company_name = payload.company_name.strip() or None
     if payload.email is not None:
         normalized_email = payload.email.strip().lower()
         if normalized_email:
@@ -624,6 +495,7 @@ def unenroll_my_account(
             first_name=current_user.first_name,
             middle_name=current_user.middle_name,
             last_name=current_user.last_name,
+            company_name=current_user.company_name,
             phone_number=current_user.phone_number,
             address=current_user.address,
             birth_date=current_user.birth_date,
@@ -654,6 +526,7 @@ def unenroll_my_account(
     current_user.username = f"archived-student-{current_user.id}-{timestamp_token}"
     current_user.email = f"archived-student-{current_user.id}-{timestamp_token}@archive.local"
     current_user.phone_number = None
+    current_user.company_name = None
     current_user.address = None
     current_user.birth_date = None
     current_user.profile_image_path = None

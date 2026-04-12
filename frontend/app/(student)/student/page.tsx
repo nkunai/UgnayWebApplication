@@ -1,5 +1,5 @@
-import { StudentHome } from "@/components/home/student-home";
+import { redirect } from "next/navigation";
 
-export default function StudentDashboardPage() {
-  return <StudentHome />;
+export default function LegacyStudentDashboardPage() {
+  redirect("/dashboard");
 }

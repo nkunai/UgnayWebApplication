@@ -1,14 +1,14 @@
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
 from app.core.datetime_utils import as_utc, utc_now
 from app.db.session import get_db
 from app.models.session import UserSession
 from app.models.user import User
+from app.services.lms_service import auto_archive_due_students
 
+DEMO_USERNAME = "student_demo"
 TEACHER_ROLES = {"teacher", "admin"}
-ADMIN_ROLES = {"admin"}
 
 
 def _normalize_user_role(user: User, db: Session) -> User:
@@ -23,17 +23,13 @@ def _normalize_user_role(user: User, db: Session) -> User:
 
 
 def _get_or_create_demo_user(db: Session) -> User:
-    demo_username = settings.demo_student_username.strip() or "student_demo"
-    user = db.query(User).filter(User.username == demo_username).first()
+    user = db.query(User).filter(User.username == DEMO_USERNAME).first()
     if user:
         return _normalize_user_role(user, db)
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail=(
-            f"Student demo user '{demo_username}' is not available. "
-            "Create it during bootstrap first."
-        ),
+        detail="Student demo user is not available. Create it during bootstrap first.",
     )
 
 
@@ -41,6 +37,8 @@ def get_current_user(
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> User:
+    auto_archive_due_students(db)
+    db.commit()
     if not authorization:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -99,10 +97,6 @@ def has_teacher_access(user: User) -> bool:
     return user.role in TEACHER_ROLES
 
 
-def has_admin_access(user: User) -> bool:
-    return user.role in ADMIN_ROLES
-
-
 def get_current_teacher(current_user: User = Depends(get_current_user)) -> User:
     if not has_teacher_access(current_user):
         raise HTTPException(
@@ -113,7 +107,7 @@ def get_current_teacher(current_user: User = Depends(get_current_user)) -> User:
 
 
 def get_current_admin(current_user: User = Depends(get_current_user)) -> User:
-    if not has_admin_access(current_user):
+    if current_user.role != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required.",

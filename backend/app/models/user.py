@@ -15,6 +15,7 @@ class User(Base):
     first_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     middle_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     last_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    company_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     phone_number: Mapped[str | None] = mapped_column(String(40), nullable=True)
     address: Mapped[str | None] = mapped_column(Text, nullable=True)

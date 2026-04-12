@@ -41,23 +41,6 @@ function formatPercent(value: number | null | undefined, digits = 1) {
   return `${value.toFixed(digits)}%`;
 }
 
-function getModuleOwnershipLabel(
-  moduleKind: "system" | "teacher_custom",
-  ownerTeacher?: { full_name: string } | null
-) {
-  if (moduleKind === "teacher_custom" && ownerTeacher) {
-    return `Teacher-owned by ${ownerTeacher.full_name}`;
-  }
-  return "System baseline module";
-}
-
-function getHandlingLabel(attempt: TeacherActivityAttempt) {
-  if (attempt.handled_by_teacher) {
-    return `Handled by ${attempt.handled_by_teacher.full_name}`;
-  }
-  return "Self-paced attempt with no active teacher session";
-}
-
 function getActivityGroupKey(attempt: TeacherActivityAttempt) {
   if (attempt.activity_id) {
     return `activity:${attempt.activity_id}`;
@@ -317,9 +300,6 @@ export function TeacherStudentReviewPanels({
                       {formatPercent(item.assessment_score, 2)}
                     </p>
                     <p className="teacher-card-meta mt-2 text-xs">
-                      {getModuleOwnershipLabel(item.module_kind, item.owner_teacher)}
-                    </p>
-                    <p className="teacher-card-meta mt-2 text-xs">
                       Updated {formatDateTime(item.updated_at)}
                     </p>
                   </button>
@@ -408,18 +388,6 @@ export function TeacherStudentReviewPanels({
                     </div>
                     <p className="teacher-card-meta mt-3 text-xs">
                       Submitted {formatDateTime(latestAttempt.submitted_at)}
-                    </p>
-                    <p className="teacher-card-meta mt-2 text-xs">
-                      {getModuleOwnershipLabel(
-                        latestAttempt.module_kind,
-                        latestAttempt.module_owner_teacher
-                      )}
-                    </p>
-                    <p className="teacher-card-meta mt-1 text-xs">
-                      {getHandlingLabel(latestAttempt)}
-                      {latestAttempt.handling_started_at
-                        ? ` since ${formatDateTime(latestAttempt.handling_started_at)}`
-                        : ""}
                     </p>
                   </summary>
 

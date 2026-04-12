@@ -6,13 +6,10 @@ import { useEffect, useMemo, useState } from "react";
 
 import {
   TeacherActivityAttempt,
-  TeacherStudentCertificate,
   TeacherStudent,
-  getTeacherStudentCertificate,
   getTeacherStudent,
   getTeacherStudentActivityAttempts,
 } from "@/lib/api";
-import { TeacherCertificateReadinessPanel } from "@/components/teacher/certificate-readiness-panel";
 import { TeacherStudentReviewPanels } from "@/components/teacher/student-review-panels";
 
 function formatDateTime(value: string | null | undefined) {
@@ -37,24 +34,17 @@ export default function TeacherStudentDetailPage() {
 
   const [student, setStudent] = useState<TeacherStudent | null>(null);
   const [attempts, setAttempts] = useState<TeacherActivityAttempt[]>([]);
-  const [certificate, setCertificate] = useState<TeacherStudentCertificate | null>(null);
-  const [certificateLoading, setCertificateLoading] = useState(false);
-  const [certificateError, setCertificateError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (Number.isNaN(studentId)) {
       setError("Invalid student id.");
-      setCertificateError("Invalid student id.");
       return;
     }
 
     setLoading(true);
     setError(null);
-    setCertificateLoading(true);
-    setCertificateError(null);
-    setCertificate(null);
     Promise.all([getTeacherStudent(studentId), getTeacherStudentActivityAttempts(studentId)])
       .then(([studentResponse, attemptsResponse]) => {
         setStudent(studentResponse);
@@ -62,11 +52,6 @@ export default function TeacherStudentDetailPage() {
       })
       .catch((requestError: Error) => setError(requestError.message))
       .finally(() => setLoading(false));
-
-    getTeacherStudentCertificate(studentId)
-      .then(setCertificate)
-      .catch((requestError: Error) => setCertificateError(requestError.message))
-      .finally(() => setCertificateLoading(false));
   }, [studentId]);
 
   const attemptSummary = useMemo(() => {
@@ -104,19 +89,19 @@ export default function TeacherStudentDetailPage() {
               className="teacher-card-ghost-button rounded-full border px-4 py-2 text-xs font-semibold transition hover:bg-white/10"
               href="/teacher/classes"
             >
-              Back to Enrollment Management
+              Back to Enrollments
             </Link>
             <Link
               className="rounded-full bg-brandBlue px-4 py-2 text-xs font-semibold text-white"
-              href="/teacher/class-management"
+              href="/teacher/progress"
             >
-              Back to Class Management
+              Back to Progress
             </Link>
           </div>
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="panel">
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-accent">Batch</p>
           <p className="teacher-panel-value mt-3 text-2xl font-black">
@@ -139,20 +124,6 @@ export default function TeacherStudentDetailPage() {
             {formatDateTime(attemptSummary.latestAt)}
           </p>
         </div>
-        <div className="panel">
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-brandBlue">Resolved Teacher</p>
-          <p className="teacher-panel-value mt-3 text-sm font-black">
-            {student?.resolved_teacher?.full_name ?? "Baseline Only"}
-          </p>
-        </div>
-        <div className="panel">
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-accentWarm">Active Session</p>
-          <p className="teacher-panel-value mt-3 text-sm font-black">
-            {student?.active_handling_session
-              ? formatDateTime(student.active_handling_session.started_at)
-              : "No Active Session"}
-          </p>
-        </div>
       </div>
 
       {loading ? (
@@ -160,14 +131,6 @@ export default function TeacherStudentDetailPage() {
           <p className="teacher-panel-copy text-sm">Loading student detail...</p>
         </div>
       ) : null}
-
-      <TeacherCertificateReadinessPanel
-        certificate={certificate}
-        error={certificateError}
-        loading={certificateLoading}
-        onChange={setCertificate}
-        studentId={studentId}
-      />
 
       <TeacherStudentReviewPanels
         activityPanelClassName="panel"
@@ -185,8 +148,6 @@ export default function TeacherStudentDetailPage() {
               <p><span className="teacher-card-title font-semibold">Birth date:</span> {student?.birth_date ?? "Not provided"}</p>
               <p><span className="teacher-card-title font-semibold">Address:</span> {student?.address ?? "Not provided"}</p>
               <p><span className="teacher-card-title font-semibold">Enrollment status:</span> {student?.enrollment_status ?? "Not set"}</p>
-              <p><span className="teacher-card-title font-semibold">Resolved teacher:</span> {student?.resolved_teacher?.full_name ?? "Baseline only"}</p>
-              <p><span className="teacher-card-title font-semibold">Handling session:</span> {student?.active_handling_session ? `Active since ${formatDateTime(student.active_handling_session.started_at)}` : "No active session"}</p>
             </div>
           </div>
         }

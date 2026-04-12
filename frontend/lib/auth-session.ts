@@ -8,6 +8,7 @@ type RawUser = {
   id?: number;
   username?: string;
   role?: string;
+  must_change_password?: boolean;
 };
 
 type RawAuthResponse = {
@@ -32,6 +33,7 @@ export type SessionUser = {
   id: number;
   username: string;
   role: SessionRole;
+  must_change_password: boolean;
 };
 
 export function guestSessionUser(): SessionUser {
@@ -39,14 +41,18 @@ export function guestSessionUser(): SessionUser {
     id: 0,
     username: "Guest",
     role: "student",
+    must_change_password: false,
   };
 }
 
 export function normalizeSessionUser(user: RawUser | undefined): SessionUser {
+  const role =
+    user?.role === "admin" ? "admin" : user?.role === "teacher" ? "teacher" : "student";
   return {
     id: typeof user?.id === "number" ? user.id : 0,
     username: user?.username?.trim() || "Guest",
-    role: user?.role === "admin" ? "admin" : user?.role === "teacher" ? "teacher" : "student",
+    role,
+    must_change_password: Boolean(user?.must_change_password),
   };
 }
 

@@ -1,5 +1,5 @@
-import { EnrollmentManagementWorkspace } from "@/components/workspaces/enrollment-management-workspace";
+import { redirect } from "next/navigation";
 
-export default function TeacherEnrollmentPage() {
-  return <EnrollmentManagementWorkspace />;
+export default function LegacyTeacherClassesPage() {
+  redirect("/teacher/sections");
 }

@@ -1,5 +1,5 @@
-import { StudentModulesCatalog } from "@/components/student/student-modules-catalog";
+import { redirect } from "next/navigation";
 
-export default function StudentModulesPage() {
-  return <StudentModulesCatalog detailHrefBase="/student/modules" />;
+export default function LegacyStudentModulesPage() {
+  redirect("/modules");
 }

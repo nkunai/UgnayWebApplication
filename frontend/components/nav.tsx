@@ -8,22 +8,21 @@ import { useState } from "react";
 const STUDENT_NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", short: "D" },
   { href: "/modules", label: "Modules", short: "M" },
-  { href: "/gesture-tester", label: "Gesture Tester", short: "GT" }
+  { href: "/lab", label: "Free Signing Gesture", short: "F" }
 ] as const;
 
 const TEACHER_NAV_ITEMS = [
   { href: "/teacher", label: "Dashboard", short: "D" },
-  { href: "/teacher/modules", label: "Modules", short: "M" },
-  { href: "/teacher/class-management", label: "Class Management", short: "C" },
-  { href: "/teacher/certificate-management", label: "Certificate Management", short: "CT" },
-  { href: "/teacher/gesture-tester", label: "Gesture Tester", short: "GT" },
-  { href: "/teacher/classes", label: "Enrollment Management", short: "EM" }
+  { href: "/teacher/sections", label: "Sections", short: "S" },
+  { href: "/teacher/reports", label: "Reports", short: "R" },
+  { href: "/teacher/lab", label: "Lab", short: "L" }
 ] as const;
 
 const ADMIN_NAV_ITEMS = [
   { href: "/admin", label: "Dashboard", short: "D" },
-  { href: "/admin/enrollment", label: "Enrollment Management", short: "EM" },
-  { href: "/admin/certificate-management", label: "Certificate Management", short: "CT" }
+  { href: "/admin/accounts", label: "Accounts", short: "A" },
+  { href: "/admin/sections", label: "Sections", short: "S" },
+  { href: "/admin/reports", label: "Reports", short: "R" }
 ] as const;
 
 export function AppNav({ role }: { role: "student" | "teacher" | "admin" }) {
@@ -31,16 +30,12 @@ export function AppNav({ role }: { role: "student" | "teacher" | "admin" }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const navItems =
-    role === "admin"
-      ? ADMIN_NAV_ITEMS
-      : role === "teacher"
-        ? TEACHER_NAV_ITEMS
-        : STUDENT_NAV_ITEMS;
+    role === "admin" ? ADMIN_NAV_ITEMS : role === "teacher" ? TEACHER_NAV_ITEMS : STUDENT_NAV_ITEMS;
   const dailyGoal =
     role === "admin"
-      ? "Review pending applications, resolve teacher requests, and verify certificate decisions."
+      ? "Create accounts, organize sections, and monitor system activity."
       : role === "teacher"
-      ? "Approve new learners, review the watchlist, and use Gesture Tester to support practical coaching."
+      ? "Publish section modules, check reports, and guide learners in the signing lab."
       : "Practice at least one module and one gesture set.";
 
   return (
@@ -62,9 +57,9 @@ export function AppNav({ role }: { role: "student" | "teacher" | "admin" }) {
             width={32}
           />
           <div className="leading-tight">
-            <p className="text-sm font-semibold text-slate-900">UGNAY Learning hub</p>
-            <p className="text-[10px] text-slate-900">basic FSL course</p>
-            <p className="text-[10px] text-slate-900">hand and heart</p>
+            <p className="text-[15px] font-black uppercase tracking-[0.18em] text-brandBlue">UGNAY LEARNING HUB</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-900">BASIC FSL COURSE</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-900">HAND AND HEART</p>
           </div>
         </div>
       </div>
@@ -94,11 +89,11 @@ export function AppNav({ role }: { role: "student" | "teacher" | "admin" }) {
             />
             {!collapsed ? (
               <div className="min-w-0 md:block">
-                <h1 className="truncate text-sm font-semibold tracking-wide text-slate-900">
-                  UGNAY Learning hub
+                <h1 className="text-base leading-tight font-black uppercase tracking-[0.12em] text-brandBlue whitespace-normal break-words">
+                  UGNAY LEARNING HUB
                 </h1>
-                <p className="text-[11px] text-slate-900">basic FSL course</p>
-                <p className="text-[11px] text-slate-900">hand and heart</p>
+                <p className="text-[12px] font-semibold uppercase tracking-[0.08em] text-slate-900">BASIC FSL COURSE</p>
+                <p className="text-[12px] font-semibold uppercase tracking-[0.08em] text-slate-900">HAND AND HEART</p>
               </div>
             ) : null}
 
@@ -122,7 +117,7 @@ export function AppNav({ role }: { role: "student" | "teacher" | "admin" }) {
           <nav className="flex-1 space-y-2 p-3">
             {navItems.map((item) => {
               const active =
-                item.href === "/teacher" || item.href === "/admin"
+                item.href === "/teacher"
                   ? pathname === item.href
                   : pathname === item.href || pathname.startsWith(`${item.href}/`);
               return (

@@ -2,6 +2,32 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "Backend: Ensure dependencies",
+      "type": "process",
+      "command": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "$workspace='${workspaceFolder}'; $backend=Join-Path $workspace 'backend'; $venv=Join-Path $backend '.venv'; $pythonExe=Join-Path $venv 'Scripts\\python.exe'; $requirements=Join-Path $backend 'requirements.txt'; $stamp=Join-Path $venv '.requirements.stamp'; if (!(Test-Path -LiteralPath $pythonExe)) { if (Get-Command py -ErrorAction SilentlyContinue) { & py -3.10 -m venv $venv 2>$null; if (!(Test-Path -LiteralPath $pythonExe)) { & py -m venv $venv } } elseif (Get-Command python -ErrorAction SilentlyContinue) { & python -m venv $venv } else { Write-Error 'Python 3.10+ is required to create backend/.venv.'; exit 1 } }; $needsInstall = -not (Test-Path -LiteralPath $stamp); if (-not $needsInstall) { $needsInstall = (Get-Item -LiteralPath $requirements).LastWriteTimeUtc -gt (Get-Item -LiteralPath $stamp).LastWriteTimeUtc }; if ($needsInstall) { & $pythonExe -m pip install --upgrade pip; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & $pythonExe -m pip install -r $requirements; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; Set-Content -LiteralPath $stamp -Value ((Get-Date).ToString('o')) }; exit 0"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Frontend: Ensure dependencies",
+      "type": "process",
+      "command": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "$workspace='${workspaceFolder}'; $frontend=Join-Path $workspace 'frontend'; $nextCmd=Join-Path $frontend 'node_modules\\.bin\\next.cmd'; $lockFile=Join-Path $frontend 'package-lock.json'; $stamp=Join-Path $frontend 'node_modules\\.install.stamp'; $needsInstall = (-not (Test-Path -LiteralPath $nextCmd)) -or (-not (Test-Path -LiteralPath $stamp)); if (-not $needsInstall) { $needsInstall = (Get-Item -LiteralPath $lockFile).LastWriteTimeUtc -gt (Get-Item -LiteralPath $stamp).LastWriteTimeUtc }; if ($needsInstall) { Push-Location $frontend; try { & npm.cmd ci; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; Set-Content -LiteralPath $stamp -Value ((Get-Date).ToString('o')) } finally { Pop-Location } }; exit 0"
+      ],
+      "problemMatcher": []
+    },
+    {
       "label": "Backend: Stop port 8000",
       "type": "process",
       "command": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
@@ -46,6 +72,7 @@
       "label": "Backend: Prepare run",
       "dependsOrder": "sequence",
       "dependsOn": [
+        "Backend: Ensure dependencies",
         "Backend: Stop port 8000",
         "Backend: Alembic upgrade head"
       ],
@@ -55,6 +82,7 @@
       "label": "Frontend: Prepare run",
       "dependsOrder": "sequence",
       "dependsOn": [
+        "Frontend: Ensure dependencies",
         "Frontend: Stop port 3000"
       ],
       "problemMatcher": []

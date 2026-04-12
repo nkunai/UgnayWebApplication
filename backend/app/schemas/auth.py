@@ -40,6 +40,7 @@ class UserOut(BaseModel):
     first_name: str | None = None
     middle_name: str | None = None
     last_name: str | None = None
+    company_name: str | None = None
     email: str | None = None
     phone_number: str | None = None
     address: str | None = None
@@ -53,6 +54,7 @@ class UserProfileUpdate(BaseModel):
     first_name: str | None = Field(default=None, max_length=120)
     middle_name: str | None = Field(default=None, max_length=120)
     last_name: str | None = Field(default=None, max_length=120)
+    company_name: str | None = Field(default=None, max_length=200)
     email: str | None = Field(default=None, max_length=255)
     phone_number: str | None = Field(default=None, max_length=40)
     address: str | None = Field(default=None, max_length=1000)

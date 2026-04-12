@@ -79,6 +79,7 @@ export type ApiUser = {
   first_name?: string | null;
   middle_name?: string | null;
   last_name?: string | null;
+  company_name?: string | null;
   email?: string | null;
   phone_number?: string | null;
   address?: string | null;
@@ -90,6 +91,255 @@ export type ApiUser = {
 export type AuthResponse = {
   token: string;
   user: ApiUser;
+};
+
+export type LmsSectionMember = {
+  id: number;
+  username: string;
+  role: "student" | "teacher" | "admin";
+  first_name?: string | null;
+  last_name?: string | null;
+  company_name?: string | null;
+  email?: string | null;
+  assigned_at?: string | null;
+  course_completed_at?: string | null;
+  auto_archive_due_at?: string | null;
+};
+
+export type LmsSection = {
+  id: number;
+  code: string;
+  name: string;
+  description?: string | null;
+  status: "active" | "archived";
+  teacher_count: number;
+  student_count: number;
+  teachers: LmsSectionMember[];
+  students: LmsSectionMember[];
+};
+
+export type AdminDashboard = {
+  total_students: number;
+  total_teachers: number;
+  total_sections: number;
+  active_sections: number;
+  pending_certificate_approvals: number;
+  recent_accounts: (ApiUser & { created_at: string })[];
+};
+
+export type AdminUser = ApiUser & {
+  must_change_password: boolean;
+  created_at: string;
+  archived_at?: string | null;
+};
+
+export type BulkAccountCreateRow = {
+  email: string;
+  first_name?: string;
+  last_name?: string;
+  company_name?: string;
+  section_id?: number | null;
+};
+
+export type BulkAccountImportResult = {
+  email: string;
+  username: string;
+  temporary_password: string;
+  delivery_status: "sent" | "skipped";
+  section_id?: number | null;
+};
+
+export type BulkAccountImportJob = {
+  processed_count: number;
+  sent_count: number;
+  skipped_count: number;
+  results: BulkAccountImportResult[];
+};
+
+export type LmsModuleItemType =
+  | "readable"
+  | "video_resource"
+  | "document_resource"
+  | "interactive_resource"
+  | "external_link_resource"
+  | "multiple_choice_assessment"
+  | "identification_assessment"
+  | "signing_lab_assessment";
+
+export type ModuleAssetKind = "video" | "image" | "document" | "interactive";
+
+export type ModuleAsset = {
+  resource_kind: ModuleAssetKind;
+  resource_file_name: string;
+  resource_file_path: string;
+  resource_mime_type?: string | null;
+  resource_url?: string | null;
+  label?: string | null;
+};
+
+export type LmsModuleItem = {
+  id: number;
+  title: string;
+  item_type: LmsModuleItemType;
+  order_index: number;
+  instructions?: string | null;
+  content_text?: string | null;
+  config: Record<string, unknown>;
+  is_required: boolean;
+  is_published: boolean;
+};
+
+export type TeacherSectionModule = {
+  id: number;
+  section_id: number;
+  title: string;
+  description: string;
+  order_index: number;
+  is_published: boolean;
+  items: LmsModuleItem[];
+};
+
+export type TeacherSectionSummary = {
+  section: LmsSection;
+  draft_module_count: number;
+  published_module_count: number;
+  pending_certificate_status?: string | null;
+};
+
+export type StudentCourseItem = {
+  id: number;
+  title: string;
+  item_type: LmsModuleItemType;
+  order_index: number;
+  instructions?: string | null;
+  content_text?: string | null;
+  config: Record<string, unknown>;
+  is_locked: boolean;
+  status: string;
+  attempt_count: number;
+  response_text?: string | null;
+  score_percent?: number | null;
+  is_correct?: boolean | null;
+};
+
+export type StudentCourseModule = {
+  id: number;
+  title: string;
+  description: string;
+  order_index: number;
+  is_locked: boolean;
+  status: string;
+  progress_percent: number;
+  items: StudentCourseItem[];
+};
+
+export type StudentCourse = {
+  section: LmsSection | null;
+  modules: StudentCourseModule[];
+};
+
+export type StudentProgressUpdate = {
+  module_id: number;
+  item_id: number;
+  module_status: string;
+  module_progress_percent: number;
+  item_status: string;
+  is_correct?: boolean | null;
+  score_percent?: number | null;
+};
+
+export type TeacherStudentModuleReport = {
+  module_id: number;
+  module_title: string;
+  status: string;
+  progress_percent: number;
+  correct_count: number;
+  wrong_count: number;
+  attempt_count: number;
+  total_duration_seconds: number;
+  item_reports?: TeacherStudentItemReport[];
+};
+
+export type TeacherStudentItemReport = {
+  item_id: number;
+  item_title: string;
+  item_type: LmsModuleItemType;
+  order_index: number;
+  status: string;
+  is_correct?: boolean | null;
+  score_percent?: number | null;
+  attempt_count: number;
+  duration_seconds: number;
+  completed_at?: string | null;
+};
+
+export type TeacherStudentProgressReport = {
+  student: LmsSectionMember;
+  section: LmsSection | null;
+  current_finished_module?: string | null;
+  verdict: string;
+  module_reports: TeacherStudentModuleReport[];
+};
+
+export type CertificateTemplateSummary = {
+  id: number;
+  section_id: number;
+  section_name: string;
+  original_file_name: string;
+  status: string;
+  review_remarks?: string | null;
+  created_at: string;
+};
+
+export type StudentCertificateDownloadStatus = {
+  eligible: boolean;
+  template_id?: number | null;
+  section_name?: string | null;
+  message: string;
+};
+
+export type LoginActivityEvent = {
+  session_id: number;
+  user_id: number;
+  username: string;
+  role: "student" | "teacher" | "admin";
+  logged_in_at: string;
+  expires_at: string;
+  is_active: boolean;
+};
+
+export type LoginActivityReport = {
+  total_logins_last_24h: number;
+  active_sessions: number;
+  logins_last_24h_by_role: Record<string, number>;
+  events: LoginActivityEvent[];
+};
+
+export type AdminAuditEvent = {
+  id: number;
+  admin_user_id: number;
+  admin_username: string;
+  action_type: string;
+  target_type: string;
+  target_id?: number | null;
+  details: Record<string, unknown>;
+  created_at: string;
+};
+
+export type SystemActivityEvent = {
+  id: number;
+  actor_user_id: number;
+  actor_username: string;
+  actor_role: "student" | "teacher" | "admin";
+  actor_email?: string | null;
+  actor_first_name?: string | null;
+  actor_last_name?: string | null;
+  actor_company_name?: string | null;
+  action_type: string;
+  target_type: string;
+  target_id?: number | null;
+  details: Record<string, unknown>;
+  created_at: string;
 };
 
 export type ForgotPasswordRequestResponse = {
@@ -1061,6 +1311,377 @@ export function getCurrentUser(token: string): Promise<ApiUser> {
   return request<ApiUser>("/auth/me", undefined, token);
 }
 
+export function getAdminDashboard(token?: string): Promise<AdminDashboard> {
+  return request<AdminDashboard>("/admin/dashboard", undefined, token);
+}
+
+export function getAdminUsers(
+  role?: "student" | "teacher" | "admin",
+  options?: { includeArchived?: boolean },
+  token?: string
+) {
+  const query = buildQuery({
+    role,
+    include_archived: options?.includeArchived ?? false,
+  });
+  return request<AdminUser[]>(`/admin/users${query}`, undefined, token);
+}
+
+export function bulkImportAccounts(
+  payload: { role: "student" | "teacher"; batch_size?: number; accounts: BulkAccountCreateRow[] },
+  token?: string
+): Promise<BulkAccountImportJob> {
+  return request<BulkAccountImportJob>(
+    "/admin/accounts/import",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    token
+  );
+}
+
+export function resendCredentials(userId: number, token?: string): Promise<{ message: string; delivery_status: string; temporary_password: string }> {
+  return request<{ message: string; delivery_status: string; temporary_password: string }>(
+    `/admin/users/${userId}/resend-credentials`,
+    { method: "POST" },
+    token
+  );
+}
+
+export function deactivateUser(userId: number, token?: string): Promise<{ message: string }> {
+  return request<{ message: string }>(`/admin/users/${userId}/deactivate`, { method: "POST" }, token);
+}
+
+export function reactivateUser(userId: number, token?: string): Promise<{ message: string }> {
+  return request<{ message: string }>(`/admin/users/${userId}/reactivate`, { method: "POST" }, token);
+}
+
+export function archiveTeacherAccount(teacherId: number, token?: string): Promise<{ message: string }> {
+  return request<{ message: string }>(`/admin/teachers/${teacherId}/archive`, { method: "POST" }, token);
+}
+
+export function unarchiveStudentAccount(studentId: number, token?: string): Promise<{ message: string }> {
+  return request<{ message: string }>(`/admin/students/${studentId}/unarchive`, { method: "POST" }, token);
+}
+
+export function archiveNonAdminAccounts(token?: string): Promise<{ message: string; count: number }> {
+  return request<{ message: string; count: number }>(
+    "/admin/accounts/archive-non-admin",
+    { method: "POST" },
+    token
+  );
+}
+
+export function getAdminSections(token?: string): Promise<LmsSection[]> {
+  return request<LmsSection[]>("/admin/sections", undefined, token);
+}
+
+export function createAdminSection(
+  payload: { code: string; name: string; description?: string | null },
+  token?: string
+): Promise<LmsSection> {
+  return request<LmsSection>(
+    "/admin/sections",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    token
+  );
+}
+
+export function updateAdminSection(
+  sectionId: number,
+  payload: { name?: string; description?: string | null; status?: "active" | "archived" },
+  token?: string
+): Promise<LmsSection> {
+  return request<LmsSection>(
+    `/admin/sections/${sectionId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    },
+    token
+  );
+}
+
+export function assignSectionMembers(
+  sectionId: number,
+  payload: { teacher_ids?: number[]; student_ids?: number[] },
+  token?: string
+): Promise<LmsSection> {
+  return request<LmsSection>(
+    `/admin/sections/${sectionId}/assignments`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    token
+  );
+}
+
+export function getPendingCertificateTemplates(token?: string): Promise<CertificateTemplateSummary[]> {
+  return request<CertificateTemplateSummary[]>("/admin/certificates/pending", undefined, token);
+}
+
+export function reviewCertificateTemplate(
+  templateId: number,
+  action: "approve" | "reject",
+  remarks: string,
+  token?: string
+): Promise<CertificateTemplateSummary> {
+  return request<CertificateTemplateSummary>(
+    `/admin/certificates/${templateId}/${action}`,
+    {
+      method: "POST",
+      body: JSON.stringify({ remarks }),
+    },
+    token
+  );
+}
+
+export function getAdminLoginActivityReport(limit = 100, token?: string): Promise<LoginActivityReport> {
+  const query = buildQuery({ limit });
+  return request<LoginActivityReport>(`/admin/reports/login-activity${query}`, undefined, token);
+}
+
+export function getAdminAuditEvents(limit = 100, token?: string): Promise<AdminAuditEvent[]> {
+  const query = buildQuery({ limit });
+  return request<AdminAuditEvent[]>(`/admin/reports/admin-actions${query}`, undefined, token);
+}
+
+export function getAdminSystemActivityEvents(
+  limit = 150,
+  role: "all" | "student" | "teacher" | "admin" = "all",
+  token?: string
+): Promise<SystemActivityEvent[]> {
+  const query = buildQuery({ limit, role });
+  return request<SystemActivityEvent[]>(`/admin/reports/system-activity${query}`, undefined, token);
+}
+
+export function getTeacherDashboard(token?: string): Promise<TeacherSectionSummary[]> {
+  return request<TeacherSectionSummary[]>("/teacher/dashboard", undefined, token);
+}
+
+export function getTeacherSections(token?: string): Promise<TeacherSectionSummary[]> {
+  return request<TeacherSectionSummary[]>("/teacher/sections", undefined, token);
+}
+
+export function getTeacherSection(sectionId: number, token?: string): Promise<LmsSection> {
+  return request<LmsSection>(`/teacher/sections/${sectionId}`, undefined, token);
+}
+
+export function getTeacherSectionModules(
+  sectionId: number,
+  token?: string
+): Promise<TeacherSectionModule[]> {
+  return request<TeacherSectionModule[]>(`/teacher/sections/${sectionId}/modules`, undefined, token);
+}
+
+export function createTeacherSectionModule(
+  sectionId: number,
+  payload: { title: string; description?: string },
+  token?: string
+): Promise<TeacherSectionModule> {
+  return request<TeacherSectionModule>(
+    `/teacher/sections/${sectionId}/modules`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    token
+  );
+}
+
+export function updateTeacherModule(
+  moduleId: number,
+  payload: { title?: string; description?: string; is_published?: boolean; order_index?: number },
+  token?: string
+): Promise<TeacherSectionModule> {
+  return request<TeacherSectionModule>(
+    `/teacher/modules/${moduleId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    },
+    token
+  );
+}
+
+export function createTeacherModuleItem(
+  moduleId: number,
+  payload: {
+    title: string;
+    item_type: LmsModuleItemType;
+    instructions?: string | null;
+    content_text?: string | null;
+    config?: Record<string, unknown>;
+    is_required?: boolean;
+    is_published?: boolean;
+  },
+  token?: string
+): Promise<TeacherSectionModule> {
+  return request<TeacherSectionModule>(
+    `/teacher/modules/${moduleId}/items`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    token
+  );
+}
+
+export function uploadTeacherModuleItemResource(
+  moduleId: number,
+  payload: {
+    title: string;
+    item_type: "video_resource" | "document_resource" | "interactive_resource";
+    file: File;
+    instructions?: string;
+    content_text?: string;
+    is_required?: boolean;
+    is_published?: boolean;
+  },
+  token?: string
+): Promise<TeacherSectionModule> {
+  const data = new FormData();
+  data.append("title", payload.title);
+  data.append("item_type", payload.item_type);
+  data.append("resource_file", payload.file);
+  if (payload.instructions) {
+    data.append("instructions", payload.instructions);
+  }
+  if (payload.content_text) {
+    data.append("content_text", payload.content_text);
+  }
+  data.append("is_required", String(payload.is_required ?? true));
+  data.append("is_published", String(payload.is_published ?? true));
+
+  return request<TeacherSectionModule>(
+    `/teacher/modules/${moduleId}/items/upload`,
+    {
+      method: "POST",
+      body: data,
+    },
+    token
+  );
+}
+
+export function uploadTeacherModuleItemAsset(
+  itemId: number,
+  payload: {
+    file: File;
+    usage?: "attachment" | "prompt";
+    label?: string;
+  },
+  token?: string
+): Promise<TeacherSectionModule> {
+  const data = new FormData();
+  data.append("resource_file", payload.file);
+  data.append("usage", payload.usage ?? "attachment");
+  if (payload.label && payload.label.trim()) {
+    data.append("label", payload.label.trim());
+  }
+  return request<TeacherSectionModule>(
+    `/teacher/module-items/${itemId}/assets/upload`,
+    {
+      method: "POST",
+      body: data,
+    },
+    token
+  );
+}
+
+export function updateTeacherModuleItem(
+  itemId: number,
+  payload: {
+    title?: string;
+    instructions?: string | null;
+    content_text?: string | null;
+    config?: Record<string, unknown>;
+    is_required?: boolean;
+    is_published?: boolean;
+  },
+  token?: string
+): Promise<TeacherSectionModule> {
+  return request<TeacherSectionModule>(
+    `/teacher/module-items/${itemId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    },
+    token
+  );
+}
+
+export function deleteTeacherModuleItem(itemId: number, token?: string): Promise<TeacherSectionModule> {
+  return request<TeacherSectionModule>(`/teacher/module-items/${itemId}`, { method: "DELETE" }, token);
+}
+
+export function uploadTeacherCertificateTemplate(sectionId: number, file: File, token?: string) {
+  const data = new FormData();
+  data.append("certificate_file", file);
+  return request<CertificateTemplateSummary>(
+    `/teacher/sections/${sectionId}/certificate-template`,
+    {
+      method: "POST",
+      body: data,
+    },
+    token
+  );
+}
+
+export function getTeacherCertificateTemplates(token?: string) {
+  return request<CertificateTemplateSummary[]>("/teacher/certificates", undefined, token);
+}
+
+export function getTeacherStudentProgressReport(studentId: number, token?: string) {
+  return request<TeacherStudentProgressReport>(`/teacher/students/${studentId}/report`, undefined, token);
+}
+
+export function getStudentDashboard(token?: string): Promise<StudentCourse> {
+  return request<StudentCourse>("/student/dashboard", undefined, token);
+}
+
+export function getStudentCourse(token?: string): Promise<StudentCourse> {
+  return request<StudentCourse>("/student/course", undefined, token);
+}
+
+export function completeReadableItem(itemId: number, durationSeconds = 0, token?: string) {
+  return request<StudentProgressUpdate>(
+    `/student/module-items/${itemId}/complete`,
+    {
+      method: "POST",
+      body: JSON.stringify({ duration_seconds: durationSeconds }),
+    },
+    token
+  );
+}
+
+export function submitStudentItem(
+  itemId: number,
+  payload: { response_text: string; duration_seconds?: number; score_percent?: number | null; extra_payload?: Record<string, unknown> },
+  token?: string
+) {
+  return request<StudentProgressUpdate>(
+    `/student/module-items/${itemId}/submit`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    token
+  );
+}
+
+export function getStudentCertificateDownloadStatus(token?: string) {
+  return request<StudentCertificateDownloadStatus>("/student/certificate", undefined, token);
+}
+
+export function downloadStudentCertificate(token?: string) {
+  return requestBlob("/student/certificate/download", undefined, token);
+}
+
 export function updateMyProfile(payload: ProfileUpdatePayload): Promise<ApiUser> {
   return request<ApiUser>("/auth/me/profile", {
     method: "PATCH",
@@ -1453,7 +2074,7 @@ export function createTeacherModule(
   );
 }
 
-export function updateTeacherModule(
+export function updateTeacherLegacyModule(
   moduleId: number,
   payload: TeacherModuleUpdatePayload,
   token?: string

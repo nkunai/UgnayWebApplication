@@ -7,15 +7,20 @@ from sqlalchemy.sql import text
 
 from app.core.config import settings
 from app.core.datetime_utils import utc_now
-from app.core.security import hash_password, verify_password
+from app.core.security import hash_password
 from app.db.base import Base
 from app.db.session import SessionLocal, engine
 from app.models.activity_attempt import ActivityAttempt, ActivityAttemptItem
+from app.models.admin_audit_log import AdminAuditLog
 from app.models.module import Module
 from app.models.module_activity import ModuleActivity
 from app.models.assessment_report import AssessmentReport
+from app.models.certificate import CertificateTemplate, IssuedCertificate
 from app.models.enrollment import Enrollment
+from app.models.lms_progress import SectionModuleItemProgress, SectionModuleProgress
 from app.models.registration import Registration
+from app.models.section import Section, SectionStudentAssignment, SectionTeacherAssignment
+from app.models.section_module import SectionModule, SectionModuleItem
 from app.models.user import User
 
 SEED_MODULES = [
@@ -1008,20 +1013,27 @@ MODULE_ACTIVITY_BLUEPRINTS_BY_SLUG: dict[str, list[dict]] = {
 }
 
 REQUIRED_TABLES = {
+    "admin_audit_logs",
     "activity_attempt_items",
     "activity_attempts",
     "archived_student_accounts",
     "assessment_reports",
     "batches",
+    "certificate_templates",
     "enrollments",
+    "issued_certificates",
     "module_activities",
     "modules",
     "password_reset_otps",
     "registrations",
-    "student_certificates",
-    "teacher_handling_sessions",
+    "section_module_item_progress",
+    "section_module_items",
+    "section_module_progress",
+    "section_modules",
+    "section_student_assignments",
+    "section_teacher_assignments",
+    "sections",
     "teacher_invites",
-    "teacher_presences",
     "user_module_progress",
     "user_sessions",
     "users",
@@ -1056,42 +1068,22 @@ def _create_table_if_missing(table_name: str, ddl: str) -> None:
 
 def seed_modules(db: Session) -> None:
     for item in SEED_MODULES:
-        existing = db.query(Module).filter(Module.slug == item["slug"]).first()
+        existing = db.query(Module).filter(Module.order_index == item["order_index"]).first()
         if not existing:
-            db.add(
-                Module(
-                    **item,
-                    module_kind="system",
-                    owner_teacher_id=None,
-                    source_module_id=None,
-                    is_shared_pool=False,
-                    cover_image_path=None,
-                    archived_at=None,
-                )
-            )
+            db.add(Module(**item))
             continue
 
         existing.slug = item["slug"]
         existing.title = item["title"]
         existing.description = item["description"]
-        existing.order_index = item["order_index"]
         existing.lessons = item["lessons"]
         existing.assessments = item["assessments"]
-        existing.module_kind = "system"
-        existing.owner_teacher_id = None
-        existing.source_module_id = None
-        existing.is_shared_pool = False
-        existing.cover_image_path = None
         existing.is_published = item.get("is_published", True)
-        existing.archived_at = None
     db.commit()
 
 
 def seed_module_activities(db: Session) -> None:
-    modules_by_slug = {
-        module.slug: module
-        for module in db.query(Module).filter(Module.module_kind == "system").all()
-    }
+    modules_by_slug = {module.slug: module for module in db.query(Module).all()}
     for slug, activities in MODULE_ACTIVITY_BLUEPRINTS_BY_SLUG.items():
         module = modules_by_slug.get(slug)
         if not module:
@@ -1130,68 +1122,34 @@ def seed_module_activities(db: Session) -> None:
     db.commit()
 
 
-def _upsert_demo_user(
-    db: Session,
-    *,
-    username: str,
-    password: str,
-    role: str,
-) -> None:
-    normalized_username = username.strip()
-    if not normalized_username:
+def seed_demo_user(db: Session) -> None:
+    existing_user = db.query(User).filter(User.username == "student_demo").first()
+    if existing_user:
         return
-
-    existing_user = db.query(User).filter(User.username == normalized_username).first()
-    if existing_user is None:
-        db.add(
-            User(
-                username=normalized_username,
-                password_hash=hash_password(password),
-                role=role,
-                must_change_password=False,
-                archived_at=None,
-            )
+    db.add(
+        User(
+            username="student_demo",
+            password_hash=hash_password("student123"),
+            role="student",
         )
-        return
-
-    needs_update = False
-    if existing_user.role != role:
-        existing_user.role = role
-        needs_update = True
-
-    if existing_user.must_change_password:
-        existing_user.must_change_password = False
-        needs_update = True
-
-    if existing_user.archived_at is not None:
-        existing_user.archived_at = None
-        needs_update = True
-
-    if not verify_password(password, existing_user.password_hash):
-        existing_user.password_hash = hash_password(password)
-        needs_update = True
-
-    if needs_update:
-        db.add(existing_user)
-
-
-def seed_demo_users(db: Session) -> None:
-    student_username = settings.demo_student_username.strip() or "student_demo"
-    student_password = settings.demo_student_password.strip() or "student123"
-    teacher_username = settings.demo_teacher_username.strip() or "teacher_demo"
-    teacher_password = settings.demo_teacher_password.strip() or "teacher123"
-
-    _upsert_demo_user(
-        db,
-        username=student_username,
-        password=student_password,
-        role="student",
     )
-    _upsert_demo_user(
-        db,
-        username=teacher_username,
-        password=teacher_password,
-        role="teacher",
+    db.commit()
+
+
+def seed_admin_user(db: Session) -> None:
+    existing_admin = db.query(User).filter(User.role == "admin", User.archived_at.is_(None)).first()
+    if existing_admin:
+        return
+    db.add(
+        User(
+            username="admin_demo",
+            email="admin@ugnay.local",
+            password_hash=hash_password("Admin123!"),
+            role="admin",
+            first_name="System",
+            last_name="Admin",
+            must_change_password=False,
+        )
     )
     db.commit()
 
@@ -1453,6 +1411,9 @@ def ensure_schema_updates() -> None:
     _add_column_if_missing("users", "first_name", "ALTER TABLE users ADD COLUMN first_name VARCHAR(120)")
     _add_column_if_missing("users", "middle_name", "ALTER TABLE users ADD COLUMN middle_name VARCHAR(120)")
     _add_column_if_missing("users", "last_name", "ALTER TABLE users ADD COLUMN last_name VARCHAR(120)")
+    _add_column_if_missing(
+        "users", "company_name", "ALTER TABLE users ADD COLUMN company_name VARCHAR(200)"
+    )
     _add_column_if_missing("users", "email", "ALTER TABLE users ADD COLUMN email VARCHAR(255)")
     _add_column_if_missing(
         "users", "phone_number", "ALTER TABLE users ADD COLUMN phone_number VARCHAR(40)"
@@ -1478,41 +1439,6 @@ def ensure_schema_updates() -> None:
         "ALTER TABLE users ADD COLUMN archived_at TIMESTAMP",
     )
     _add_column_if_missing(
-        "modules",
-        "module_kind",
-        "ALTER TABLE modules ADD COLUMN module_kind VARCHAR(20) NOT NULL DEFAULT 'system'",
-    )
-    _add_column_if_missing(
-        "modules",
-        "owner_teacher_id",
-        "ALTER TABLE modules ADD COLUMN owner_teacher_id INTEGER REFERENCES users(id)",
-    )
-    _add_column_if_missing(
-        "modules",
-        "source_module_id",
-        "ALTER TABLE modules ADD COLUMN source_module_id INTEGER REFERENCES modules(id)",
-    )
-    _add_column_if_missing(
-        "modules",
-        "is_shared_pool",
-        "ALTER TABLE modules ADD COLUMN is_shared_pool BOOLEAN NOT NULL DEFAULT FALSE",
-    )
-    _add_column_if_missing(
-        "modules",
-        "cover_image_path",
-        "ALTER TABLE modules ADD COLUMN cover_image_path VARCHAR(500)",
-    )
-    _add_column_if_missing(
-        "modules",
-        "archived_at",
-        "ALTER TABLE modules ADD COLUMN archived_at TIMESTAMP",
-    )
-    _add_column_if_missing(
-        "batches",
-        "primary_teacher_id",
-        "ALTER TABLE batches ADD COLUMN primary_teacher_id INTEGER REFERENCES users(id)",
-    )
-    _add_column_if_missing(
         "enrollments",
         "rejection_reason_code",
         "ALTER TABLE enrollments ADD COLUMN rejection_reason_code VARCHAR(40)",
@@ -1533,6 +1459,7 @@ def ensure_schema_updates() -> None:
             first_name VARCHAR(120),
             middle_name VARCHAR(120),
             last_name VARCHAR(120),
+            company_name VARCHAR(200),
             phone_number VARCHAR(40),
             address TEXT,
             birth_date DATE,
@@ -1547,88 +1474,15 @@ def ensure_schema_updates() -> None:
         )
         """,
     )
-    _create_table_if_missing(
-        "student_certificates",
-        """
-        CREATE TABLE student_certificates (
-            id INTEGER PRIMARY KEY,
-            student_id INTEGER NOT NULL UNIQUE,
-            status VARCHAR(20) NOT NULL,
-            certificate_reference VARCHAR(80) NOT NULL UNIQUE,
-            decision_note TEXT,
-            decided_by_user_id INTEGER NOT NULL,
-            decided_at TIMESTAMP NOT NULL,
-            issued_at TIMESTAMP,
-            snapshot_target_required_modules INTEGER NOT NULL DEFAULT 12,
-            snapshot_effective_required_modules INTEGER NOT NULL DEFAULT 0,
-            snapshot_completed_required_modules INTEGER NOT NULL DEFAULT 0,
-            snapshot_average_best_score FLOAT NOT NULL DEFAULT 0,
-            snapshot_module_details JSON NOT NULL DEFAULT '[]',
-            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(student_id) REFERENCES users(id) ON DELETE CASCADE,
-            FOREIGN KEY(decided_by_user_id) REFERENCES users(id) ON DELETE CASCADE
-        )
-        """,
-    )
-    _create_table_if_missing(
-        "teacher_presences",
-        """
-        CREATE TABLE teacher_presences (
-            id INTEGER PRIMARY KEY,
-            teacher_id INTEGER NOT NULL UNIQUE,
-            status VARCHAR(20) NOT NULL DEFAULT 'offline',
-            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(teacher_id) REFERENCES users(id) ON DELETE CASCADE
-        )
-        """,
-    )
-    _create_table_if_missing(
-        "teacher_handling_sessions",
-        """
-        CREATE TABLE teacher_handling_sessions (
-            id INTEGER PRIMARY KEY,
-            teacher_id INTEGER NOT NULL,
-            batch_id INTEGER,
-            student_id INTEGER,
-            status VARCHAR(20) NOT NULL DEFAULT 'active',
-            started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            ended_at TIMESTAMP,
-            FOREIGN KEY(teacher_id) REFERENCES users(id) ON DELETE CASCADE,
-            FOREIGN KEY(batch_id) REFERENCES batches(id),
-            FOREIGN KEY(student_id) REFERENCES users(id)
-        )
-        """,
+    _add_column_if_missing(
+        "archived_student_accounts",
+        "company_name",
+        "ALTER TABLE archived_student_accounts ADD COLUMN company_name VARCHAR(200)",
     )
     _add_column_if_missing(
-        "activity_attempts",
-        "module_owner_teacher_id",
-        "ALTER TABLE activity_attempts ADD COLUMN module_owner_teacher_id INTEGER REFERENCES users(id)",
-    )
-    _add_column_if_missing(
-        "activity_attempts",
-        "handled_by_teacher_id",
-        "ALTER TABLE activity_attempts ADD COLUMN handled_by_teacher_id INTEGER REFERENCES users(id)",
-    )
-    _add_column_if_missing(
-        "activity_attempts",
-        "handling_session_id",
-        "ALTER TABLE activity_attempts ADD COLUMN handling_session_id INTEGER REFERENCES teacher_handling_sessions(id)",
-    )
-    _add_column_if_missing(
-        "assessment_reports",
-        "module_owner_teacher_id",
-        "ALTER TABLE assessment_reports ADD COLUMN module_owner_teacher_id INTEGER REFERENCES users(id)",
-    )
-    _add_column_if_missing(
-        "assessment_reports",
-        "handled_by_teacher_id",
-        "ALTER TABLE assessment_reports ADD COLUMN handled_by_teacher_id INTEGER REFERENCES users(id)",
-    )
-    _add_column_if_missing(
-        "assessment_reports",
-        "handling_session_id",
-        "ALTER TABLE assessment_reports ADD COLUMN handling_session_id INTEGER REFERENCES teacher_handling_sessions(id)",
+        "archived_student_accounts",
+        "company_name",
+        "ALTER TABLE archived_student_accounts ADD COLUMN company_name VARCHAR(200)",
     )
     _add_column_if_missing(
         "user_module_progress",
@@ -1665,6 +1519,16 @@ def ensure_schema_updates() -> None:
         "report_sent_at",
         "ALTER TABLE user_module_progress ADD COLUMN report_sent_at TIMESTAMP",
     )
+    _add_column_if_missing(
+        "section_student_assignments",
+        "course_completed_at",
+        "ALTER TABLE section_student_assignments ADD COLUMN course_completed_at TIMESTAMP",
+    )
+    _add_column_if_missing(
+        "section_student_assignments",
+        "auto_archive_due_at",
+        "ALTER TABLE section_student_assignments ADD COLUMN auto_archive_due_at TIMESTAMP",
+    )
 
     missing_activity_blueprints = sorted(
         slug for slug in published_slugs if not MODULE_ACTIVITY_BLUEPRINTS_BY_SLUG.get(slug)
@@ -1673,17 +1537,6 @@ def ensure_schema_updates() -> None:
         raise RuntimeError(
             "Published modules are missing activity blueprints: "
             + ", ".join(missing_activity_blueprints)
-        )
-
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                """
-                UPDATE batches
-                SET primary_teacher_id = created_by_user_id
-                WHERE primary_teacher_id IS NULL AND created_by_user_id IS NOT NULL
-                """
-            )
         )
 
 
@@ -1704,16 +1557,13 @@ def init_db() -> None:
     from app import models  # noqa: F401
 
     validate_seed_data()
-
-    if settings.should_auto_bootstrap_schema:
-        Base.metadata.create_all(bind=engine)
-        ensure_schema_updates()
-    else:
+    Base.metadata.create_all(bind=engine)
+    ensure_schema_updates()
+    if not settings.should_auto_bootstrap_schema:
         _verify_required_tables()
 
     with SessionLocal() as db:
-        seed_modules(db)
-        seed_module_activities(db)
-        seed_demo_users(db)
+        seed_demo_user(db)
+        seed_admin_user(db)
         backfill_enrollments(db)
         backfill_legacy_activity_attempts(db)

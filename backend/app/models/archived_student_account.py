@@ -22,6 +22,7 @@ class ArchivedStudentAccount(Base):
     first_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     middle_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     last_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    company_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     phone_number: Mapped[str | None] = mapped_column(String(40), nullable=True)
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
     birth_date: Mapped[date | None] = mapped_column(Date, nullable=True)
