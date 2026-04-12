@@ -1563,6 +1563,8 @@ def init_db() -> None:
         _verify_required_tables()
 
     with SessionLocal() as db:
+        seed_modules(db)
+        seed_module_activities(db)
         seed_demo_user(db)
         seed_admin_user(db)
         backfill_enrollments(db)
