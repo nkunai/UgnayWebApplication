@@ -1,7 +1,8 @@
 param(
     [switch]$DryRun,
     [switch]$UseMegaDatasets,
-    [switch]$NoRestart
+    [switch]$NoRestart,
+    [switch]$BackendReload
 )
 
 $ErrorActionPreference = "Stop"
@@ -273,7 +274,13 @@ $backendSteps += 'Write-Host ''Backend startup uses DATABASE_URL from backend\.e
 $backendSteps += 'Write-Host ''Applying backend database migrations (alembic upgrade head)...'' -ForegroundColor Yellow'
 $backendSteps += '& ' + (Quote-PowerShell $backendRuntimePython) + ' -m alembic upgrade head'
 $backendSteps += 'if ($LASTEXITCODE -ne 0) { throw ''Backend migration failed. Fix the Alembic/database error above, then retry.'' }'
-$backendSteps += '& ' + (Quote-PowerShell $backendRuntimePython) + ' -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000'
+if ($BackendReload) {
+    $backendSteps += 'Write-Host ''Backend reload mode: ON (watch mode).'' -ForegroundColor Yellow'
+    $backendSteps += '& ' + (Quote-PowerShell $backendRuntimePython) + ' -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000'
+} else {
+    $backendSteps += 'Write-Host ''Backend reload mode: OFF (stable startup).'' -ForegroundColor Yellow'
+    $backendSteps += '& ' + (Quote-PowerShell $backendRuntimePython) + ' -m uvicorn app.main:app --host 0.0.0.0 --port 8000'
+}
 
 $frontendSteps = @(
     '$host.UI.RawUI.WindowTitle = ''Ugnay Frontend'''

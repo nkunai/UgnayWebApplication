@@ -2,7 +2,7 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Backend: FastAPI (Reload)",
+      "name": "Backend: FastAPI (Reload - Optional)",
       "type": "debugpy",
       "request": "launch",
       "python": "${workspaceFolder}/backend/.venv/Scripts/python.exe",
@@ -27,7 +27,7 @@
       "name": "Frontend: Next.js Dev",
       "type": "node-terminal",
       "request": "launch",
-      "command": "npm.cmd run dev",
+      "command": "npm.cmd run dev -- --hostname 0.0.0.0 --port 3000",
       "cwd": "${workspaceFolder}/frontend",
       "preLaunchTask": "Frontend: Prepare run"
     },
@@ -55,17 +55,17 @@
   ],
   "compounds": [
     {
-      "name": "Run Full Stack (Reload)",
+      "name": "Run Full Stack",
       "configurations": [
-        "Backend: FastAPI (Reload)",
+        "Backend: FastAPI",
         "Frontend: Next.js Dev"
       ],
       "stopAll": true
     },
     {
-      "name": "Run Full Stack",
+      "name": "Run Full Stack (Reload - Optional)",
       "configurations": [
-        "Backend: FastAPI",
+        "Backend: FastAPI (Reload - Optional)",
         "Frontend: Next.js Dev"
       ],
       "stopAll": true
