@@ -1678,6 +1678,10 @@ export function getStudentCertificateDownloadStatus(token?: string) {
   return request<StudentCertificateDownloadStatus>("/student/certificate", undefined, token);
 }
 
+/**
+ * @deprecated Prefer `getStudentCertificateDownloadStatus` for student-facing pages.
+ * This helper is kept for legacy flows that still rely on `/modules/certificate-status`.
+ */
 export function getStudentCertificateStatus(
   token?: string
 ): Promise<StudentCertificateStatus> {

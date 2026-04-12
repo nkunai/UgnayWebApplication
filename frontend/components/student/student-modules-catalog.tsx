@@ -9,6 +9,14 @@ import {
   ModuleItem,
   StudentCertificateDownloadStatus,
 } from "@/lib/api";
+import {
+  getCatalogCertificateStatusLabel,
+  getCertificateProgressMessage,
+  getCertificateStatusValue,
+  getCertificateTemplateLabel,
+  getCertificateTone,
+  getStudentCoreProgramMetrics,
+} from "@/lib/student-certificate-ui";
 
 const CARD_THEMES = [
   {
@@ -74,26 +82,6 @@ function formatPercent(value: number | null | undefined, digits = 0) {
   return `${value.toFixed(digits)}%`;
 }
 
-function formatCertificateLabel(certificate: StudentCertificateDownloadStatus | null) {
-  if (!certificate) {
-    return "Certificate tracking";
-  }
-  if (certificate.eligible) {
-    return "Ready to download";
-  }
-  return "In progress";
-}
-
-function certificateTone(certificate: StudentCertificateDownloadStatus | null) {
-  if (!certificate) {
-    return "border-brandBlue/20 bg-brandBlueLight text-slate-900";
-  }
-  if (certificate.eligible) {
-    return "border-brandGreen/35 bg-brandGreenLight text-slate-900";
-  }
-  return "border-brandYellow/35 bg-brandYellowLight text-slate-900";
-}
-
 function progressTone(percent: number) {
   if (percent >= 100) {
     return "bg-brandGreen";
@@ -154,17 +142,8 @@ export function StudentModulesCatalog({
     void loadData();
   }, []);
 
-  const programTarget = 12;
-  const coreModules = modules.filter((module) => module.module_kind === "system");
-  const liveCoreSessions = coreModules.length;
-  const completedCoreSessions = coreModules.filter((module) => module.progress_percent >= 100).length;
-  const coreScores = coreModules
-    .map((module) => module.assessment_score)
-    .filter((score): score is number => typeof score === "number");
-  const averageBestScore =
-    coreScores.length > 0
-      ? coreScores.reduce((total, score) => total + score, 0) / coreScores.length
-      : null;
+  const { programTarget, liveCoreSessions, completedCoreSessions, averageBestScore } =
+    getStudentCoreProgramMetrics(modules);
 
   const nextCoreModule = useMemo(
     () =>
@@ -269,19 +248,18 @@ export function StudentModulesCatalog({
           </div>
 
           <span
-            className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] ${certificateTone(
+            className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] ${getCertificateTone(
               certificate
             )}`}
           >
-            {formatCertificateLabel(certificate)}
+            {getCatalogCertificateStatusLabel(certificate)}
           </span>
         </div>
 
         <div className="grid gap-4 lg:grid-cols-[1.15fr,0.85fr]">
           <div className="rounded-[24px] border border-black/10 bg-black/5 px-4 py-4">
             <p className="text-sm leading-relaxed text-slate-700">
-              {certificate?.message ??
-                "Certificate progress will appear here after your sessions and scores load."}
+              {getCertificateProgressMessage(certificate)}
             </p>
           </div>
 
@@ -304,7 +282,7 @@ export function StudentModulesCatalog({
                   Certificate Status
                 </p>
                 <p className="mt-2 text-sm font-semibold text-slate-900">
-                  {certificate?.eligible ? "Eligible" : "In Progress"}
+                  {getCertificateStatusValue(certificate)}
                 </p>
               </div>
               <div className="rounded-2xl border border-black/10 bg-white px-4 py-3">
@@ -312,11 +290,7 @@ export function StudentModulesCatalog({
                   Certificate Template
                 </p>
                 <p className="mt-2 text-sm font-semibold text-slate-900">
-                  {certificate?.section_name
-                    ? `${certificate.section_name}${certificate.template_id ? ` - Template #${certificate.template_id}` : ""}`
-                    : certificate?.template_id
-                      ? `Template #${certificate.template_id}`
-                      : "Pending template"}
+                  {getCertificateTemplateLabel(certificate)}
                 </p>
               </div>
             </div>
