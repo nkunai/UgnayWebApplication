@@ -5,9 +5,9 @@ import { useEffect, useMemo, useState } from "react";
 
 import {
   getModules,
-  getStudentCertificateStatus,
+  getStudentCertificateDownloadStatus,
   ModuleItem,
-  StudentCertificateStatus,
+  StudentCertificateDownloadStatus,
 } from "@/lib/api";
 
 function formatPercent(value: number | null | undefined, digits = 0) {
@@ -17,33 +17,21 @@ function formatPercent(value: number | null | undefined, digits = 0) {
   return `${value.toFixed(digits)}%`;
 }
 
-function certificateStatusLabel(certificate: StudentCertificateStatus | null) {
+function certificateStatusLabel(certificate: StudentCertificateDownloadStatus | null) {
   if (!certificate) {
     return "Certificate tracking";
   }
-  if (certificate.record?.status === "approved" && certificate.record.issued_at) {
-    return "Issued";
-  }
-  if (certificate.record?.status === "rejected") {
-    return "Review Needed";
-  }
-  if (certificate.summary.eligible) {
-    return "Ready For Teacher";
+  if (certificate.eligible) {
+    return "Ready To Download";
   }
   return "In Progress";
 }
 
-function certificateTone(certificate: StudentCertificateStatus | null) {
+function certificateTone(certificate: StudentCertificateDownloadStatus | null) {
   if (!certificate) {
     return "border-brandBlue/20 bg-brandBlueLight text-slate-900";
   }
-  if (certificate.record?.status === "approved" && certificate.record.issued_at) {
-    return "border-brandGreen/35 bg-brandGreenLight text-slate-900";
-  }
-  if (certificate.record?.status === "rejected") {
-    return "border-red-200 bg-red-50 text-red-700";
-  }
-  if (certificate.summary.eligible) {
+  if (certificate.eligible) {
     return "border-brandGreen/35 bg-brandGreenLight text-slate-900";
   }
   return "border-brandYellow/35 bg-brandYellowLight text-slate-900";
@@ -61,7 +49,7 @@ function progressTone(percent: number) {
 
 export function StudentHome() {
   const [modules, setModules] = useState<ModuleItem[]>([]);
-  const [certificate, setCertificate] = useState<StudentCertificateStatus | null>(null);
+  const [certificate, setCertificate] = useState<StudentCertificateDownloadStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -72,7 +60,7 @@ export function StudentHome() {
 
       const [modulesResult, certificateResult] = await Promise.allSettled([
         getModules(),
-        getStudentCertificateStatus(),
+        getStudentCertificateDownloadStatus(),
       ]);
 
       const errors: string[] = [];
@@ -104,12 +92,17 @@ export function StudentHome() {
     void loadData();
   }, []);
 
-  const programTarget = certificate?.summary.target_required_modules ?? 12;
-  const completedCoreSessions =
-    certificate?.summary.completed_required_modules ??
-    modules.filter((module) => module.module_kind === "system" && module.progress_percent >= 100).length;
-  const liveCoreSessions = certificate?.summary.effective_required_modules ?? 0;
-  const averageBestScore = certificate?.summary.average_best_score ?? null;
+  const programTarget = 12;
+  const coreModules = modules.filter((module) => module.module_kind === "system");
+  const completedCoreSessions = coreModules.filter((module) => module.progress_percent >= 100).length;
+  const liveCoreSessions = coreModules.length;
+  const coreScores = coreModules
+    .map((module) => module.assessment_score)
+    .filter((score): score is number => typeof score === "number");
+  const averageBestScore =
+    coreScores.length > 0
+      ? coreScores.reduce((total, score) => total + score, 0) / coreScores.length
+      : null;
 
   const nextCoreModule = useMemo(
     () =>
@@ -208,7 +201,7 @@ export function StudentHome() {
                 Certificate Progress
               </p>
               <h3 className="teacher-panel-heading mt-2 text-2xl font-black">
-                Completion, passing score, and teacher approval
+                Completion and certificate availability
               </h3>
             </div>
             <span
@@ -222,17 +215,9 @@ export function StudentHome() {
 
           <div className="rounded-[24px] border border-black/10 bg-black/5 px-4 py-4">
             <p className="text-sm leading-relaxed text-slate-700">
-              {certificate?.summary.reason ??
+              {certificate?.message ??
                 "Certificate progress will appear here after your sessions and scores load."}
             </p>
-            {certificate?.record?.decision_note ? (
-              <div className="mt-4 rounded-2xl border border-black/10 bg-white px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
-                  Teacher Note
-                </p>
-                <p className="mt-2 text-sm text-slate-700">{certificate.record.decision_note}</p>
-              </div>
-            ) : null}
           </div>
         </div>
 
@@ -255,18 +240,22 @@ export function StudentHome() {
             </div>
             <div className="rounded-2xl border border-black/10 bg-black/5 px-4 py-4">
               <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
-                Teacher Decision
+                Certificate Status
               </p>
               <p className="mt-2 text-sm font-semibold text-slate-900">
-                {certificate?.record?.status ?? "Pending"}
+                {certificate?.eligible ? "Eligible" : "In Progress"}
               </p>
             </div>
             <div className="rounded-2xl border border-black/10 bg-black/5 px-4 py-4">
               <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
-                Certificate Ref
+                Certificate Template
               </p>
               <p className="mt-2 text-sm font-semibold text-slate-900">
-                {certificate?.record?.certificate_reference ?? "Not issued yet"}
+                {certificate?.section_name
+                  ? `${certificate.section_name}${certificate.template_id ? ` - Template #${certificate.template_id}` : ""}`
+                  : certificate?.template_id
+                    ? `Template #${certificate.template_id}`
+                    : "Pending template"}
               </p>
             </div>
           </div>
