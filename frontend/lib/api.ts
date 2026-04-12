@@ -1678,6 +1678,12 @@ export function getStudentCertificateDownloadStatus(token?: string) {
   return request<StudentCertificateDownloadStatus>("/student/certificate", undefined, token);
 }
 
+export function getStudentCertificateStatus(
+  token?: string
+): Promise<StudentCertificateStatus> {
+  return request<StudentCertificateStatus>("/modules/certificate-status", undefined, token);
+}
+
 export function downloadStudentCertificate(token?: string) {
   return requestBlob("/student/certificate/download", undefined, token);
 }
@@ -1776,12 +1782,6 @@ export function getModules(token?: string): Promise<ModuleItem[]> {
 
 export function getModule(moduleId: number, token?: string): Promise<ModuleItem> {
   return request<ModuleItem>(`/modules/${moduleId}`, undefined, token);
-}
-
-export function getStudentCertificateStatus(
-  token?: string
-): Promise<StudentCertificateStatus> {
-  return request<StudentCertificateStatus>("/modules/certificate-status", undefined, token);
 }
 
 export function submitActivityAttempt(
